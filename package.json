@@ -1,0 +1,14 @@
+{
+    "name": "@apollohg/react-native-sketch-canvas",
+    "version": "0.1.0",
+    "description": "Native drawing canvas with a Rust core for React Native",
+    "license": "Apache-2.0",
+    "private": false,
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "test:rust": "./rust/toolchain-cargo.sh test --manifest-path rust/sketch-core/Cargo.toml --all-features",
+        "lint:rust": "cargo +1.95.0 fmt --manifest-path rust/sketch-core/Cargo.toml --check && cargo +1.95.0 clippy --manifest-path rust/sketch-core/Cargo.toml --all-targets --all-features -- -D warnings"
+    }
+}
