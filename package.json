@@ -3,6 +3,11 @@
     "version": "0.1.0",
     "description": "Native drawing canvas with a Rust core for React Native",
     "license": "Apache-2.0",
+    "homepage": "https://github.com/apollohg/react-native-sketch-canvas",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/apollohg/react-native-sketch-canvas.git"
+    },
     "main": "dist/index.js",
     "module": "dist/index.js",
     "react-native": "src/index.ts",
@@ -31,11 +36,14 @@
         "lint:ios": "node scripts/swiftlint.mjs lint --strict",
         "lint:kotlin": "node scripts/ktlint.mjs",
         "lint:rust": "cargo +1.95.0 fmt --manifest-path rust/sketch-core/Cargo.toml --check && cargo +1.95.0 clippy --manifest-path rust/sketch-core/Cargo.toml --all-targets --all-features -- -D warnings",
+        "notices:check": "node scripts/generate-third-party-notices.mjs --check",
+        "notices:generate": "node scripts/generate-third-party-notices.mjs",
         "prebuild:example": "npm --prefix example run prebuild",
         "prebuild:example:android": "npm --prefix example run prebuild:android",
         "prebuild:example:ios": "npm --prefix example run prebuild:ios",
         "prepack": "npm run build",
         "prepare:example:native": "npm run prebuild:example && npm run install:example:pods",
+        "prepare:publish": "bash ./scripts/prepare-publish.sh",
         "run:example:android": "npm --prefix example run android",
         "run:example:ios": "npm --prefix example run ios",
         "start:example": "npm --prefix example start",
@@ -44,7 +52,8 @@
         "test:android:device": "npm run prebuild:example:android && cd example/android && ./gradlew :apollohg-react-native-sketch-canvas:connectedDebugAndroidTest",
         "test:ios": "bash ./scripts/run-ios-tests.sh",
         "test:rust": "./rust/toolchain-cargo.sh test --manifest-path rust/sketch-core/Cargo.toml --features ffi",
-        "typecheck": "tsc --noEmit"
+        "typecheck": "tsc --noEmit",
+        "validate:package": "bash ./scripts/validate-packed-package.sh"
     },
     "peerDependencies": {
         "expo": ">=58.0.0",
@@ -73,5 +82,25 @@
         "react-test-renderer": "^19.3.0",
         "typescript": "~6.0.3",
         "typescript-eslint": "^8.73.0"
-    }
+    },
+    "files": [
+        "README.md",
+        "LICENSE",
+        "FORMAT.md",
+        "THIRD_PARTY_NOTICES.md",
+        "RUST-STANDARD-LIBRARY-NOTICES.html",
+        "dist",
+        "src",
+        "!src/__tests__",
+        "ios/*.swift",
+        "ios/sketch_coreFFI",
+        "ios/SketchCore.xcframework",
+        "ReactNativeSketchCanvas.podspec",
+        "android/build.gradle",
+        "android/consumer-rules.pro",
+        "android/src/main",
+        "rust/android",
+        "rust/bindings/kotlin",
+        "expo-module.config.json"
+    ]
 }

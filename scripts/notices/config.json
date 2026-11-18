@@ -1,0 +1,107 @@
+{
+    "standardLibraryVersion": "1.95.0",
+    "packages": [
+        {
+            "manifest": "rust/sketch-core/Cargo.toml",
+            "output": "THIRD_PARTY_NOTICES.md",
+            "features": [
+                "ffi"
+            ],
+            "description": "`@apollohg/react-native-sketch-canvas` \u2014 the Rust core built with its `ffi` feature for the shipped iOS and Android libraries, generated UniFFI bindings and native dependencies.",
+            "supplement": "scripts/notices/sketch-supplement.md"
+        }
+    ],
+    "localSources": {},
+    "overrides": {
+        "uniffi@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        },
+        "uniffi_bindgen@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        },
+        "uniffi_build@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        },
+        "uniffi_core@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        },
+        "uniffi_internal_macros@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        },
+        "uniffi_macros@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        },
+        "uniffi_meta@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        },
+        "uniffi_pipeline@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        },
+        "uniffi_udl@0.29.5": {
+            "license": "MPL-2.0",
+            "files": [
+                {
+                    "path": "scripts/notices/licenses/uniffi-LICENSE.txt",
+                    "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/856f77b6fdf78fae45bc3c394499df60f8cc5851/LICENSE",
+                    "label": "uniffi-LICENSE.txt"
+                }
+            ]
+        }
+    }
+}
