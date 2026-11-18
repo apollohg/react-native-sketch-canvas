@@ -281,3 +281,23 @@ fn conformance_fixtures_match() {
         dir.display()
     );
 }
+
+#[test]
+fn hostile_coordinates_stay_bounded() {
+    let hostile = stroke(&[
+        (0.0, 0.0, 0.02),
+        (1e12, 0.0, 0.02),
+        (0.0, 1e12, 0.02),
+        (1e300, -1e300, 0.02),
+    ]);
+    let samples = centre_line(&hostile.points).len();
+    assert!(
+        samples <= 3 + 2 * 64,
+        "centre line has {samples} samples for 4 points"
+    );
+    let verbs = outline_stroke(&hostile).verbs.len();
+    assert!(
+        verbs <= 20 * samples,
+        "outline has {verbs} verbs for {samples} samples"
+    );
+}

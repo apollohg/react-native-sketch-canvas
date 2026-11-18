@@ -61,10 +61,10 @@ Input: the points `p[0..n)` of one stroke, with radius `r[i] = w[i] / 2`. All ar
 
      ```text
      tol = max(0.02 · max(r(m[i-1]), r[i], r(m[i])), 0.01)
-     k   = max(1, ceil(sqrt(|m[i-1] − 2·p[i] + m[i]| / (4 · tol))))
+     k   = clamp(ceil(sqrt(|m[i-1] − 2·p[i] + m[i]| / (4 · tol))), 1, 64)
      ```
 
-     and append the samples at `t = j / k` for `j = 1 ..= k`. Straight parts contribute only their end samples, so `S` starts `[p0, m[0], …]` and ends `[…, m[n-2], p[n-1]]`.
+     The cap of 64 only matters for degenerate input; it bounds the work any document can cause. Append the samples at `t = j / k` for `j = 1 ..= k`. Straight parts contribute only their end samples, so `S` starts `[p0, m[0], …]` and ends `[…, m[n-2], p[n-1]]`.
    - While building `S`, skip any sample whose centre lies within `1e-9` of the previous sample's centre.
 
 2. **Pieces.** If `S` has one sample, emit its circle. Otherwise, for each consecutive pair of discs `A`, `B` with centre distance `d`:

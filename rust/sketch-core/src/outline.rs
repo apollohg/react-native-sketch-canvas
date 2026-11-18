@@ -13,6 +13,7 @@ pub const VERB_CLOSE: u8 = 4;
 const DUPLICATE_SAMPLE_DISTANCE: f64 = 1e-9;
 const FLATTEN_TOLERANCE_PER_RADIUS: f64 = 0.02;
 const MIN_FLATTEN_TOLERANCE: f64 = 0.01;
+const MAX_FLATTEN_STEPS: usize = 64;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PathData {
@@ -84,7 +85,8 @@ fn centre_line_with_stable_len(points: &[Point]) -> (Vec<Point>, usize) {
         let tolerance = (FLATTEN_TOLERANCE_PER_RADIUS * max_radius).max(MIN_FLATTEN_TOLERANCE);
         let second_difference =
             (start.x - 2.0 * control.x + end.x).hypot(start.y - 2.0 * control.y + end.y);
-        let steps = ((second_difference / (4.0 * tolerance)).sqrt().ceil() as usize).max(1);
+        let steps = ((second_difference / (4.0 * tolerance)).sqrt().ceil() as usize)
+            .clamp(1, MAX_FLATTEN_STEPS);
         for j in 1..=steps {
             let t = j as f64 / steps as f64;
             let quad = |a: f64, b: f64, c: f64| {
