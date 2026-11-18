@@ -1,6 +1,7 @@
 //! Flattens an SVG background into draw ops with `usvg`. Only `data:` image hrefs are read.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use usvg::roxmltree;
@@ -18,6 +19,11 @@ const MAX_PATH_COORDS: usize = 4_000_000;
 /// Decoded size of every raster image together, from each image's header, so a small file that
 /// declares huge dimensions cannot exhaust memory when the native side decodes it.
 const MAX_IMAGE_PIXELS: usize = 32 * 1024 * 1024;
+/// `usvg` parses a fresh tree for every `<use>` of a nested SVG image, so their nodes share one budget.
+const MAX_NESTED_SVG_NODES: usize = 100_000;
+/// The data URL types `usvg` tries to parse as a nested SVG.
+const SVG_MIME: &str = "image/svg+xml";
+const UNTYPED_MIME: &str = "text/plain";
 
 #[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -40,13 +46,26 @@ pub struct Background {
 
 pub fn parse_background(svg: &str) -> Result<Background, BackgroundError> {
     let warnings = Mutex::new(BTreeSet::new());
+    let nested_nodes = AtomicUsize::new(0);
     let default_data = usvg::ImageHrefResolver::default_data_resolver();
     let options = usvg::Options {
         resources_dir: None,
         image_href_resolver: usvg::ImageHrefResolver {
             resolve_data: Box::new(|mime, data, options| {
+                if nested_nodes.load(Ordering::Relaxed) > MAX_NESTED_SVG_NODES {
+                    return None;
+                }
                 scan_for_text(&data, &warnings);
-                default_data(mime, data, options)
+                let parses_svg = matches!(mime, SVG_MIME | UNTYPED_MIME);
+                let kind = default_data(mime, data, options);
+                let cost = match &kind {
+                    Some(usvg::ImageKind::SVG(tree)) => node_count(tree.root()),
+                    // A failed parse may have expanded up to usvg's own element limit.
+                    None if parses_svg => MAX_NESTED_SVG_NODES + 1,
+                    _ => 0,
+                };
+                nested_nodes.fetch_add(cost, Ordering::Relaxed);
+                kind
             }),
             resolve_string: Box::new(|_, _| {
                 record(&warnings, BackgroundWarning::UnsupportedExternalImage);
@@ -59,6 +78,13 @@ pub fn parse_background(svg: &str) -> Result<Background, BackgroundError> {
         message: e.to_string(),
     })?;
     drop(options);
+    if nested_nodes.into_inner() > MAX_NESTED_SVG_NODES {
+        return Err(BackgroundError::Invalid {
+            message: format!(
+                "nested SVG images are invalid or exceed {MAX_NESTED_SVG_NODES} elements"
+            ),
+        });
+    }
     scan_for_text(svg.as_bytes(), &warnings);
 
     let mut flattener = Flattener {
@@ -88,6 +114,17 @@ fn record(warnings: &Mutex<BTreeSet<BackgroundWarning>>, warning: BackgroundWarn
     if let Ok(mut set) = warnings.lock() {
         set.insert(warning);
     }
+}
+
+fn node_count(group: &usvg::Group) -> usize {
+    group
+        .children()
+        .iter()
+        .map(|child| match child {
+            usvg::Node::Group(inner) => 1 + node_count(inner),
+            _ => 1,
+        })
+        .sum()
 }
 
 /// `usvg` is built without text support and drops `<text>` silently, so look for it in the XML.

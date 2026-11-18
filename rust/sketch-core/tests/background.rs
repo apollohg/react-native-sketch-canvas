@@ -317,3 +317,48 @@ fn huge_image_dimensions_are_capped() {
         result.map(|b| b.ops.len())
     );
 }
+
+fn repeated_nested_svg(inner_levels: usize, outer_levels: usize) -> String {
+    let inner = repeated(r#"<rect width="1" height="1"/>"#, inner_levels);
+    repeated(
+        &format!(
+            r#"<image width="1" height="1" href="data:image/svg+xml;base64,{}"/>"#,
+            base64_encode(inner.as_bytes())
+        ),
+        outer_levels,
+    )
+}
+
+fn assert_rejected_quickly(svg: &str, limit: std::time::Duration, what: &str) {
+    let started = std::time::Instant::now();
+    let result = parse_background(svg);
+    let elapsed = started.elapsed();
+    assert!(
+        matches!(result, Err(BackgroundError::Invalid { .. })),
+        "{what} parsed: {:?}",
+        result.map(|b| b.ops.len())
+    );
+    assert!(
+        elapsed < limit,
+        "rejecting {what} ({} input bytes) took {elapsed:?}; nested SVG parses must share one budget",
+        svg.len()
+    );
+}
+
+#[test]
+fn repeated_nested_svg_images_are_capped() {
+    assert_rejected_quickly(
+        &repeated_nested_svg(4, 3),
+        std::time::Duration::from_secs(2),
+        "1000 copies of a 10,000-node nested SVG",
+    );
+}
+
+#[test]
+fn repeated_oversized_nested_svg_images_are_capped() {
+    assert_rejected_quickly(
+        &repeated_nested_svg(6, 2),
+        std::time::Duration::from_secs(20),
+        "100 copies of a nested SVG past usvg's element limit",
+    );
+}
