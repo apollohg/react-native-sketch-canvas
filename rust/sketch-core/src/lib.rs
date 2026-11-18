@@ -12,6 +12,7 @@ mod export_svg;
 pub mod ffi;
 mod fit;
 mod geometry;
+mod math;
 mod outline;
 mod session;
 

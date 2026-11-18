@@ -1,6 +1,7 @@
 //! Turns pointer samples into stored stroke points. These constants are capture tuning, not
 //! part of the document format: changing them only affects strokes drawn afterwards.
 
+use crate::math::hypot;
 use crate::outline::{live_tail, pieces_between, StableCentreLine};
 use crate::{outline_tail, Affine, Color, PathData, Point, Stroke, MAX_COORDINATE};
 
@@ -79,7 +80,7 @@ impl WidthModel {
     fn advance(&mut self, sample: InputSample) -> f64 {
         let elapsed = sample.time_ms - self.last.time_ms;
         let speed = (elapsed > 0.0)
-            .then(|| (sample.x - self.last.x).hypot(sample.y - self.last.y) / elapsed);
+            .then(|| hypot(sample.x - self.last.x, sample.y - self.last.y) / elapsed);
         self.last = sample;
         self.width_for(sample, speed)
     }
@@ -123,7 +124,7 @@ pub(crate) struct StrokeBuilder {
 impl StrokeBuilder {
     pub(crate) fn begin(pen: Pen, view_to_doc: Affine, sample: InputSample) -> StrokeBuilder {
         let (model, width) = WidthModel::start(&pen, sample);
-        let scale = view_to_doc.a.hypot(view_to_doc.b);
+        let scale = hypot(view_to_doc.a, view_to_doc.b);
         let mut builder = StrokeBuilder {
             color: pen.color,
             view_to_doc,
@@ -142,7 +143,7 @@ impl StrokeBuilder {
 
     pub(crate) fn extend(&mut self, samples: &[InputSample]) {
         for &sample in samples {
-            let distance = (sample.x - self.last_stored.x).hypot(sample.y - self.last_stored.y);
+            let distance = hypot(sample.x - self.last_stored.x, sample.y - self.last_stored.y);
             if distance < MIN_SAMPLE_DISTANCE {
                 self.pending = Some(sample);
             } else {

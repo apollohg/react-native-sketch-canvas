@@ -2,6 +2,7 @@
 
 use std::f64::consts::{FRAC_PI_2, TAU};
 
+use crate::math::{acos, atan2, cos, hypot, sin, tan};
 use crate::{Point, Stroke};
 
 pub const VERB_MOVE: u8 = 0;
@@ -172,8 +173,10 @@ fn push_quadratic(samples: &mut impl Samples, window: &[Point]) {
     );
     let max_radius = (start.w / 2.0).max(control.w / 2.0).max(end.w / 2.0);
     let tolerance = (FLATTEN_TOLERANCE_PER_RADIUS * max_radius).max(MIN_FLATTEN_TOLERANCE);
-    let second_difference =
-        (start.x - 2.0 * control.x + end.x).hypot(start.y - 2.0 * control.y + end.y);
+    let second_difference = hypot(
+        start.x - 2.0 * control.x + end.x,
+        start.y - 2.0 * control.y + end.y,
+    );
     let steps = ((second_difference / (4.0 * tolerance)).sqrt().ceil() as usize)
         .clamp(1, MAX_FLATTEN_STEPS);
     for j in 1..=steps {
@@ -202,7 +205,7 @@ fn midpoint(a: Point, b: Point) -> Point {
 
 fn push_sample(samples: &mut impl Samples, p: Point) {
     if let Some(last) = samples.last() {
-        if (p.x - last.x).hypot(p.y - last.y) <= DUPLICATE_SAMPLE_DISTANCE {
+        if hypot(p.x - last.x, p.y - last.y) <= DUPLICATE_SAMPLE_DISTANCE {
             return;
         }
     }
@@ -271,13 +274,13 @@ fn pieces(samples: &[Point], whole: bool) -> PathData {
 fn emit_pair(path: &mut PathData, a: Point, b: Point) {
     let (ra, rb) = (a.w / 2.0, b.w / 2.0);
     let (dx, dy) = (b.x - a.x, b.y - a.y);
-    let distance = dx.hypot(dy);
+    let distance = hypot(dx, dy);
     if distance <= (ra - rb).abs() {
         emit_circle(path, if ra >= rb { a } else { b });
         return;
     }
-    let theta = dy.atan2(dx);
-    let beta = ((ra - rb) / distance).acos();
+    let theta = atan2(dy, dx);
+    let beta = acos((ra - rb) / distance);
     let (a1x, a1y) = polar(a, ra, theta + beta);
     let (b1x, b1y) = polar(b, rb, theta + beta);
     let (a2x, a2y) = polar(a, ra, theta - beta);
@@ -297,24 +300,24 @@ fn emit_circle(path: &mut PathData, centre: Point) {
 }
 
 fn polar(centre: Point, r: f64, angle: f64) -> (f64, f64) {
-    (centre.x + r * angle.cos(), centre.y + r * angle.sin())
+    (centre.x + r * cos(angle), centre.y + r * sin(angle))
 }
 
 fn emit_arc(path: &mut PathData, centre: Point, r: f64, start: f64, end: f64) {
     let delta = end - start;
     let parts = ((delta.abs() / FRAC_PI_2).ceil() as usize).max(1);
     let step = delta / parts as f64;
-    let handle = r * 4.0 / 3.0 * (step / 4.0).tan();
+    let handle = r * 4.0 / 3.0 * tan(step / 4.0);
     for i in 0..parts {
         let a0 = start + step * i as f64;
         let a1 = a0 + step;
         let (x0, y0) = polar(centre, r, a0);
         let (x3, y3) = polar(centre, r, a1);
         path.cubic_to(
-            x0 - handle * a0.sin(),
-            y0 + handle * a0.cos(),
-            x3 + handle * a1.sin(),
-            y3 - handle * a1.cos(),
+            x0 - handle * sin(a0),
+            y0 + handle * cos(a0),
+            x3 + handle * sin(a1),
+            y3 - handle * cos(a1),
             x3,
             y3,
         );

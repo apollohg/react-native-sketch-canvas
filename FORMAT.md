@@ -49,7 +49,7 @@ Each stroke becomes one closed outline path, filled with its colour using the **
 
 ### Outline algorithm
 
-Input: the points `p[0..n)` of one stroke, with radius `r[i] = w[i] / 2`. All arithmetic is IEEE 754 double precision.
+Input: the points `p[0..n)` of one stroke, with radius `r[i] = w[i] / 2`. All arithmetic is IEEE 754 double precision. `sqrt` is the correctly rounded IEEE operation; `hypot`, `sin`, `cos`, `tan`, `atan2` and `acos` must return exactly what the pure-Rust [`libm`](https://crates.io/crates/libm) 0.2.16 crate returns, since other math libraries differ in the last bit and that can change how many cubics an arc gets (step 4).
 
 1. **Centre line.** Build the sample list `S` of discs (centre, radius):
    - `n == 1`: `S = [p0]`.
@@ -133,4 +133,4 @@ ty = (bh − ch·s) / 2
 { "strokes": [ { "verbs": [0, 1, 3, 3, 1, 3, 3, 3, 4], "coords": [ … ] } ] }
 ```
 
-Verbs are `0` move (2 coords), `1` line (2), `2` quadratic (4), `3` cubic (6) and `4` close (0). An implementation conforms when, for every input, it emits exactly the expected verbs for each stroke and every coordinate within `1e-3` of the expected value.
+Verbs are `0` move (2 coords), `1` line (2), `2` quadratic (4), `3` cubic (6) and `4` close (0). An implementation conforms when, for every input, it emits exactly the expected verbs for each stroke and every coordinate within `1e-3` of the expected value. Matching the verbs requires the math functions named in the outline algorithm.
