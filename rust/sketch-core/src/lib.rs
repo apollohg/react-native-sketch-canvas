@@ -4,6 +4,7 @@ mod color;
 mod document;
 mod draw_ops;
 mod error;
+mod export_svg;
 mod fit;
 mod geometry;
 mod outline;
@@ -17,6 +18,7 @@ pub use draw_ops::{
     DrawOp, FillRule, GradientStop, ImageFormat, LineCap, LineJoin, Paint, Spread, StrokeParams,
 };
 pub use error::{BackgroundError, DocumentError};
+pub use export_svg::export_svg;
 pub use fit::fit_transform;
 pub use geometry::Affine;
 pub use outline::{
