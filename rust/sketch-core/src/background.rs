@@ -14,6 +14,7 @@ use crate::{Affine, BackgroundError, Color, DrawOp, PathData};
 /// Bounds the work and memory any background can cause, since `<use>` multiplies content.
 const MAX_OPS: usize = 50_000;
 const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
+const MAX_PATH_COORDS: usize = 4_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackgroundWarning {
@@ -57,7 +58,7 @@ pub fn parse_background(svg: &str) -> Result<Background, BackgroundError> {
 
     let mut flattener = Flattener {
         ops: Vec::new(),
-        image_bytes: 0,
+        budget: Budget::default(),
         over_limit: false,
         warnings: warnings.into_inner().unwrap_or_default(),
     };
@@ -101,20 +102,34 @@ fn scan_for_text(data: &[u8], warnings: &Mutex<BTreeSet<BackgroundWarning>>) {
     }
 }
 
+#[derive(Default)]
+struct Budget {
+    ops: usize,
+    path_coords: usize,
+    image_bytes: usize,
+}
+
 struct Flattener {
     ops: Vec<DrawOp>,
-    image_bytes: usize,
+    budget: Budget,
     over_limit: bool,
     warnings: BTreeSet<BackgroundWarning>,
 }
 
 impl Flattener {
+    /// Counts work before it is allocated; false once any limit is passed.
+    fn reserve(&mut self, ops: usize, path_coords: usize, image_bytes: usize) -> bool {
+        self.budget.ops += ops;
+        self.budget.path_coords += path_coords;
+        self.budget.image_bytes += image_bytes;
+        self.over_limit |= self.budget.ops > MAX_OPS
+            || self.budget.path_coords > MAX_PATH_COORDS
+            || self.budget.image_bytes > MAX_IMAGE_BYTES;
+        !self.over_limit
+    }
+
     fn emit(&mut self, op: DrawOp) {
-        if let DrawOp::Image { data, .. } = &op {
-            self.image_bytes += data.len();
-        }
-        self.over_limit |= self.ops.len() >= MAX_OPS || self.image_bytes > MAX_IMAGE_BYTES;
-        if !self.over_limit {
+        if self.reserve(1, 0, 0) {
             self.ops.push(op);
         }
     }
@@ -163,6 +178,10 @@ impl Flattener {
     }
 
     fn path(&mut self, path: &usvg::Path, transform: Affine) {
+        let painted = usize::from(path.fill().is_some()) + usize::from(path.stroke().is_some());
+        if !self.reserve(painted, painted * path.data().points().len() * 2, 0) {
+            return;
+        }
         let data = path_data(path.data());
         let fill = path.fill().and_then(|fill| {
             let paint = self.paint(fill.paint())?;
@@ -203,9 +222,7 @@ impl Flattener {
             usvg::PaintOrder::FillAndStroke => [fill, stroke],
             usvg::PaintOrder::StrokeAndFill => [stroke, fill],
         };
-        for op in ordered.into_iter().flatten() {
-            self.emit(op);
-        }
+        self.ops.extend(ordered.into_iter().flatten());
     }
 
     fn image(&mut self, image: &usvg::Image, transform: Affine) {
@@ -216,8 +233,11 @@ impl Flattener {
             usvg::ImageKind::GIF(data) => (data, ImageFormat::Gif),
             usvg::ImageKind::WEBP(data) => (data, ImageFormat::Webp),
         };
+        if !self.reserve(1, 0, data.len()) {
+            return;
+        }
         let size = image.size();
-        self.emit(DrawOp::Image {
+        self.ops.push(DrawOp::Image {
             data: data.to_vec(),
             format,
             x: 0.0,
@@ -230,6 +250,9 @@ impl Flattener {
 
     /// Pushes the clip and any clip it is itself clipped by; returns how many pushes to pop.
     fn push_clip(&mut self, clip: &usvg::ClipPath, transform: Affine) -> usize {
+        if self.over_limit {
+            return 0;
+        }
         let mut shapes = Vec::new();
         collect_clip_shapes(clip.root(), Affine::IDENTITY, &mut shapes);
         let rule = match shapes.as_slice() {
@@ -240,7 +263,10 @@ impl Flattener {
         for (shape, _) in &shapes {
             path.append(shape);
         }
-        self.emit(DrawOp::PushClip {
+        if !self.reserve(1, path.coords.len(), 0) {
+            return 0;
+        }
+        self.ops.push(DrawOp::PushClip {
             path,
             rule,
             transform: affine(clip.transform()).then(&transform),

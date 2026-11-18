@@ -283,3 +283,20 @@ fn base64_encode(bytes: &[u8]) -> String {
     }
     out
 }
+
+#[test]
+fn repeated_path_geometry_is_capped() {
+    let d: String = (0..50_000)
+        .map(|i| format!("L{} {} ", i % 7, i % 5))
+        .collect();
+    let svg = repeated(
+        &format!(r#"<path d="M0 0 {d}" fill="none" stroke="black"/>"#),
+        2,
+    );
+    let result = parse_background(&svg);
+    assert!(
+        matches!(result, Err(BackgroundError::Invalid { .. })),
+        "100 copies of a 50,000-segment path parsed: {:?}",
+        result.map(|b| b.ops.len())
+    );
+}
