@@ -1,0 +1,12 @@
+{
+    "extends": "expo/tsconfig.base",
+    "compilerOptions": {
+        "strict": true,
+        "typeRoots": ["./node_modules/@types"],
+        "paths": {
+            "@apollohg/react-native-sketch-canvas": ["../src/index.ts"]
+        }
+    },
+    "include": ["./**/*.ts", "./**/*.tsx"],
+    "exclude": ["./node_modules", "./android", "./ios"]
+}

@@ -1,0 +1,10 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": {
+    "modules": ["SketchCanvasModule"],
+    "podspecPath": "./ReactNativeSketchCanvas.podspec"
+  },
+  "android": {
+    "modules": ["com.apollohg.sketchcanvas.SketchCanvasModule"]
+  }
+}

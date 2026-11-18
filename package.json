@@ -3,15 +3,68 @@
     "version": "0.1.0",
     "description": "Native drawing canvas with a Rust core for React Native",
     "license": "Apache-2.0",
+    "main": "dist/index.js",
+    "module": "dist/index.js",
+    "react-native": "src/index.ts",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "react-native": "./src/index.ts",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
     "private": false,
     "publishConfig": {
         "access": "public"
     },
     "scripts": {
+        "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
         "build:rust": "bash rust/generate-bindings.sh && bash rust/build-ios.sh && bash rust/build-android.sh",
         "build:rust:android": "bash rust/generate-bindings.sh && bash rust/build-android.sh",
         "build:rust:ios": "bash rust/generate-bindings.sh && bash rust/build-ios.sh",
+        "install:example:pods": "cd example/ios && pod install --no-repo-update",
+        "lint": "eslint src",
         "lint:rust": "cargo +1.95.0 fmt --manifest-path rust/sketch-core/Cargo.toml --check && cargo +1.95.0 clippy --manifest-path rust/sketch-core/Cargo.toml --all-targets --all-features -- -D warnings",
-        "test:rust": "./rust/toolchain-cargo.sh test --manifest-path rust/sketch-core/Cargo.toml --features ffi"
+        "prebuild:example": "npm --prefix example run prebuild",
+        "prebuild:example:android": "npm --prefix example run prebuild:android",
+        "prebuild:example:ios": "npm --prefix example run prebuild:ios",
+        "prepack": "npm run build",
+        "prepare:example:native": "npm run prebuild:example && npm run install:example:pods",
+        "run:example:android": "npm --prefix example run android",
+        "run:example:ios": "npm --prefix example run ios",
+        "start:example": "npm --prefix example start",
+        "test": "jest --runInBand --watchman=false",
+        "test:rust": "./rust/toolchain-cargo.sh test --manifest-path rust/sketch-core/Cargo.toml --features ffi",
+        "typecheck": "tsc --noEmit"
+    },
+    "peerDependencies": {
+        "expo": ">=58.0.0",
+        "react": "*",
+        "react-native": "*"
+    },
+    "devDependencies": {
+        "@babel/runtime": "^8.1.2",
+        "@eslint/js": "^10.0.1",
+        "@react-native/jest-preset": "^0.88.1",
+        "@stylistic/eslint-plugin": "^5.10.0",
+        "@testing-library/react-native": "^13.3.3",
+        "@types/jest": "^30.0.0",
+        "@types/react": "~19.3.0",
+        "babel-preset-expo": "~58.0.0",
+        "eslint": "^10.15.0",
+        "eslint-plugin-react-hooks": "^7.1.1",
+        "eslint-plugin-react-native": "^5.0.0",
+        "eslint-plugin-slop": "^0.1.3",
+        "expo": "~58.0.25",
+        "jest": "~30.5.2",
+        "jest-expo": "~58.0.14",
+        "jiti": "^2.7.0",
+        "react": "^19.3.0",
+        "react-native": "^0.88.1",
+        "react-test-renderer": "^19.3.0",
+        "typescript": "~6.0.3",
+        "typescript-eslint": "^8.73.0"
     }
 }

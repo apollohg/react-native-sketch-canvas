@@ -1,0 +1,28 @@
+{
+  "name": "sketch-canvas-example",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo/AppEntry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android --device",
+    "ios": "expo run:ios --device",
+    "prebuild": "expo prebuild --clean --no-install",
+    "prebuild:android": "expo prebuild --clean --platform android --no-install",
+    "prebuild:ios": "expo prebuild --clean --platform ios --no-install",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@apollohg/react-native-sketch-canvas": "file:..",
+    "expo": "~58.0.25",
+    "expo-status-bar": "~58.0.5",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "~5.9.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "babel-preset-expo": "~58.0.0",
+    "typescript": "~6.0.3"
+  }
+}
