@@ -4,9 +4,9 @@
 use std::path::Path;
 
 use sketch_core::{
-    fit_transform, outline_stroke, parse_background, parse_document, Affine, Color, DrawOp, FillRule,
-    GradientStop, ImageFormat, LineCap, LineJoin, Paint, PathData, Spread, VERB_CLOSE, VERB_CUBIC, VERB_LINE,
-    VERB_MOVE, VERB_QUAD,
+    fit_transform, outline_stroke, parse_background, parse_document, Affine, Color, DrawOp,
+    FillRule, GradientStop, ImageFormat, LineCap, LineJoin, Paint, PathData, Spread, VERB_CLOSE,
+    VERB_CUBIC, VERB_LINE, VERB_MOVE, VERB_QUAD,
 };
 use tiny_skia::{Mask, Pixmap, PixmapPaint, Transform};
 
@@ -21,28 +21,51 @@ fn main() {
     scenes.sort();
     for scene_path in scenes {
         let scene: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(&scene_path).expect("read scene")).expect("scene json");
+            serde_json::from_str(&std::fs::read_to_string(&scene_path).expect("read scene"))
+                .expect("scene json");
         let width = scene["width"].as_u64().expect("width") as u32;
         let height = scene["height"].as_u64().expect("height") as u32;
         let document = parse_document(&scene["document"].to_string()).expect("document");
         let mut renderer = Renderer::new(width, height);
         if let Some(hex) = scene["backgroundColor"].as_str() {
             let c = Color::parse(hex).expect("backgroundColor");
-            renderer.target().fill(tiny_skia::Color::from_rgba8(c.r, c.g, c.b, c.a));
+            renderer
+                .target()
+                .fill(tiny_skia::Color::from_rgba8(c.r, c.g, c.b, c.a));
         }
-        let doc_to_view =
-            fit_transform(document.width, document.height, f64::from(width), f64::from(height));
+        let doc_to_view = fit_transform(
+            document.width,
+            document.height,
+            f64::from(width),
+            f64::from(height),
+        );
         if let Some(name) = scene["background"].as_str() {
-            let svg = std::fs::read_to_string(fixtures.join("backgrounds").join(name)).expect("background");
+            let svg = std::fs::read_to_string(fixtures.join("backgrounds").join(name))
+                .expect("background");
             let background = parse_background(&svg).expect("background parses");
-            let bg_to_doc = fit_transform(background.width, background.height, document.width, document.height);
+            let bg_to_doc = fit_transform(
+                background.width,
+                background.height,
+                document.width,
+                document.height,
+            );
             renderer.draw(&background.ops, &bg_to_doc.then(&doc_to_view));
         }
         for stroke in &document.strokes {
-            renderer.fill(&outline_stroke(stroke), &Paint::Solid(stroke.color), FillRule::NonZero, 1.0, &doc_to_view);
+            renderer.fill(
+                &outline_stroke(stroke),
+                &Paint::Solid(stroke.color),
+                FillRule::NonZero,
+                1.0,
+                &doc_to_view,
+            );
         }
         let output = scene_path.with_extension("png");
-        renderer.layers.remove(0).save_png(&output).expect("write png");
+        renderer
+            .layers
+            .remove(0)
+            .save_png(&output)
+            .expect("write png");
         println!("wrote {}", output.display());
     }
 }
@@ -55,7 +78,11 @@ struct Renderer {
 
 impl Renderer {
     fn new(width: u32, height: u32) -> Renderer {
-        Renderer { layers: vec![Pixmap::new(width, height).expect("pixmap")], layer_opacity: Vec::new(), masks: vec![None] }
+        Renderer {
+            layers: vec![Pixmap::new(width, height).expect("pixmap")],
+            layer_opacity: Vec::new(),
+            masks: vec![None],
+        }
     }
 
     fn target(&mut self) -> &mut Pixmap {
@@ -69,11 +96,25 @@ impl Renderer {
     fn draw(&mut self, ops: &[DrawOp], base: &Affine) {
         for op in ops {
             match op {
-                DrawOp::FillPath { path, paint, rule, opacity, transform } => {
+                DrawOp::FillPath {
+                    path,
+                    paint,
+                    rule,
+                    opacity,
+                    transform,
+                } => {
                     self.fill(path, paint, *rule, *opacity, &transform.then(base));
                 }
-                DrawOp::StrokePath { path, paint, params, opacity, transform } => {
-                    let Some(skia_path) = skia_path(path) else { continue };
+                DrawOp::StrokePath {
+                    path,
+                    paint,
+                    params,
+                    opacity,
+                    transform,
+                } => {
+                    let Some(skia_path) = skia_path(path) else {
+                        continue;
+                    };
                     let mut stroke = tiny_skia::Stroke {
                         width: params.width,
                         miter_limit: params.miter_limit,
@@ -90,14 +131,20 @@ impl Renderer {
                         dash: None,
                     };
                     if !params.dash.is_empty() {
-                        stroke.dash = tiny_skia::StrokeDash::new(params.dash.clone(), params.dash_offset);
+                        stroke.dash =
+                            tiny_skia::StrokeDash::new(params.dash.clone(), params.dash_offset);
                     }
                     let skia_paint = skia_paint(paint, *opacity);
                     let ts = skia_transform(&transform.then(base));
                     let mask = self.mask().cloned();
-                    self.target().stroke_path(&skia_path, &skia_paint, &stroke, ts, mask.as_ref());
+                    self.target()
+                        .stroke_path(&skia_path, &skia_paint, &stroke, ts, mask.as_ref());
                 }
-                DrawOp::PushClip { path, rule, transform } => {
+                DrawOp::PushClip {
+                    path,
+                    rule,
+                    transform,
+                } => {
                     let size = (self.target().width(), self.target().height());
                     let mut mask = self.mask().cloned().unwrap_or_else(|| {
                         let mut full = Mask::new(size.0, size.1).expect("mask");
@@ -105,7 +152,12 @@ impl Renderer {
                         full
                     });
                     if let Some(skia_path) = skia_path(path) {
-                        mask.intersect_path(&skia_path, fill_rule(*rule), true, skia_transform(&transform.then(base)));
+                        mask.intersect_path(
+                            &skia_path,
+                            fill_rule(*rule),
+                            true,
+                            skia_transform(&transform.then(base)),
+                        );
                     } else {
                         mask.data_mut().fill(0);
                     }
@@ -123,11 +175,33 @@ impl Renderer {
                     let layer = self.layers.pop().expect("layer");
                     let opacity = self.layer_opacity.pop().expect("layer opacity");
                     let mask = self.mask().cloned();
-                    let paint = PixmapPaint { opacity, ..PixmapPaint::default() };
-                    self.target().draw_pixmap(0, 0, layer.as_ref(), &paint, Transform::identity(), mask.as_ref());
+                    let paint = PixmapPaint {
+                        opacity,
+                        ..PixmapPaint::default()
+                    };
+                    self.target().draw_pixmap(
+                        0,
+                        0,
+                        layer.as_ref(),
+                        &paint,
+                        Transform::identity(),
+                        mask.as_ref(),
+                    );
                 }
-                DrawOp::Image { data, format, x, y, width, height, transform } => {
-                    assert_eq!(*format, ImageFormat::Png, "golden scenes only use PNG images");
+                DrawOp::Image {
+                    data,
+                    format,
+                    x,
+                    y,
+                    width,
+                    height,
+                    transform,
+                } => {
+                    assert_eq!(
+                        *format,
+                        ImageFormat::Png,
+                        "golden scenes only use PNG images"
+                    );
                     let image = Pixmap::decode_png(data).expect("png");
                     let place = Affine {
                         a: f64::from(*width) / f64::from(image.width()),
@@ -137,20 +211,39 @@ impl Renderer {
                         e: f64::from(*x),
                         f: f64::from(*y),
                     };
-                    let paint = PixmapPaint { quality: tiny_skia::FilterQuality::Bilinear, ..PixmapPaint::default() };
+                    let paint = PixmapPaint {
+                        quality: tiny_skia::FilterQuality::Bilinear,
+                        ..PixmapPaint::default()
+                    };
                     let ts = skia_transform(&place.then(transform).then(base));
                     let mask = self.mask().cloned();
-                    self.target().draw_pixmap(0, 0, image.as_ref(), &paint, ts, mask.as_ref());
+                    self.target()
+                        .draw_pixmap(0, 0, image.as_ref(), &paint, ts, mask.as_ref());
                 }
             }
         }
     }
 
-    fn fill(&mut self, path: &PathData, paint: &Paint, rule: FillRule, opacity: f32, transform: &Affine) {
-        let Some(skia_path) = skia_path(path) else { return };
+    fn fill(
+        &mut self,
+        path: &PathData,
+        paint: &Paint,
+        rule: FillRule,
+        opacity: f32,
+        transform: &Affine,
+    ) {
+        let Some(skia_path) = skia_path(path) else {
+            return;
+        };
         let skia_paint = skia_paint(paint, opacity);
         let mask = self.mask().cloned();
-        self.target().fill_path(&skia_path, &skia_paint, fill_rule(rule), skia_transform(transform), mask.as_ref());
+        self.target().fill_path(
+            &skia_path,
+            &skia_paint,
+            fill_rule(rule),
+            skia_transform(transform),
+            mask.as_ref(),
+        );
     }
 }
 
@@ -172,7 +265,9 @@ fn skia_path(data: &PathData) -> Option<tiny_skia::Path> {
 }
 
 fn skia_transform(t: &Affine) -> Transform {
-    Transform::from_row(t.a as f32, t.b as f32, t.c as f32, t.d as f32, t.e as f32, t.f as f32)
+    Transform::from_row(
+        t.a as f32, t.b as f32, t.c as f32, t.d as f32, t.e as f32, t.f as f32,
+    )
 }
 
 fn fill_rule(rule: FillRule) -> tiny_skia::FillRule {
@@ -187,7 +282,10 @@ fn skia_color(c: Color, opacity: f32) -> tiny_skia::Color {
 }
 
 fn skia_stops(stops: &[GradientStop], opacity: f32) -> Vec<tiny_skia::GradientStop> {
-    stops.iter().map(|s| tiny_skia::GradientStop::new(s.offset, skia_color(s.color, opacity))).collect()
+    stops
+        .iter()
+        .map(|s| tiny_skia::GradientStop::new(s.offset, skia_color(s.color, opacity)))
+        .collect()
 }
 
 fn spread(spread: Spread) -> tiny_skia::SpreadMode {
@@ -199,10 +297,21 @@ fn spread(spread: Spread) -> tiny_skia::SpreadMode {
 }
 
 fn skia_paint(paint: &Paint, opacity: f32) -> tiny_skia::Paint<'static> {
-    let mut skia = tiny_skia::Paint { anti_alias: true, ..tiny_skia::Paint::default() };
+    let mut skia = tiny_skia::Paint {
+        anti_alias: true,
+        ..tiny_skia::Paint::default()
+    };
     match paint {
         Paint::Solid(c) => skia.set_color(skia_color(*c, opacity)),
-        Paint::LinearGradient { x1, y1, x2, y2, stops, spread: s, transform } => {
+        Paint::LinearGradient {
+            x1,
+            y1,
+            x2,
+            y2,
+            stops,
+            spread: s,
+            transform,
+        } => {
             skia.shader = tiny_skia::LinearGradient::new(
                 tiny_skia::Point::from_xy(*x1, *y1),
                 tiny_skia::Point::from_xy(*x2, *y2),
@@ -212,7 +321,16 @@ fn skia_paint(paint: &Paint, opacity: f32) -> tiny_skia::Paint<'static> {
             )
             .expect("linear gradient");
         }
-        Paint::RadialGradient { cx, cy, r, fx, fy, stops, spread: s, transform } => {
+        Paint::RadialGradient {
+            cx,
+            cy,
+            r,
+            fx,
+            fy,
+            stops,
+            spread: s,
+            transform,
+        } => {
             skia.shader = tiny_skia::RadialGradient::new(
                 tiny_skia::Point::from_xy(*fx, *fy),
                 tiny_skia::Point::from_xy(*cx, *cy),
