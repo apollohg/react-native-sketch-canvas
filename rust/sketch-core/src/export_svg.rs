@@ -16,11 +16,19 @@ const REPLACED_BACKGROUND_ATTRIBUTES: [&str; 5] =
 /// A standalone SVG of the document: strokes as filled outlines, over the optional background.
 pub fn export_svg(doc: &Document, background: Option<&str>) -> Result<String, BackgroundError> {
     let (width, height) = (format_number(doc.width), format_number(doc.height));
-    let mut out = format!(
+    let nested = background
+        .map(|svg| nested_background(svg, &width, &height))
+        .transpose()?;
+    let mut out = String::new();
+    if let Some(subset) = nested.as_ref().and_then(|n| n.dtd_subset) {
+        let _ = write!(out, "<!DOCTYPE svg [{subset}]>");
+    }
+    let _ = write!(
+        out,
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">"#
     );
-    if let Some(svg) = background {
-        out.push_str(&nested_background(svg, &width, &height)?);
+    if let Some(nested) = nested {
+        out.push_str(&nested.element);
     }
     for stroke in &doc.strokes {
         let color = stroke.color;
@@ -47,8 +55,25 @@ pub fn export_svg(doc: &Document, background: Option<&str>) -> Result<String, Ba
     Ok(out)
 }
 
+struct NestedBackground<'a> {
+    /// Entity declarations the element may reference, from the DOCTYPE's `[…]` subset.
+    dtd_subset: Option<&'a str>,
+    element: String,
+}
+
+fn internal_dtd_subset(prolog: &str) -> Option<&str> {
+    let doctype = &prolog[prolog.find("<!DOCTYPE")?..];
+    let open = doctype.find('[')?;
+    let close = doctype.rfind(']').filter(|&close| close > open)?;
+    Some(&doctype[open + 1..close])
+}
+
 /// The background's root element only, with its position and size attributes rewritten.
-fn nested_background(svg: &str, width: &str, height: &str) -> Result<String, BackgroundError> {
+fn nested_background<'a>(
+    svg: &'a str,
+    width: &str,
+    height: &str,
+) -> Result<NestedBackground<'a>, BackgroundError> {
     let invalid = |message: String| BackgroundError::Invalid { message };
     let background = parse_background(svg)?;
     let options = roxmltree::ParsingOptions {
@@ -85,7 +110,10 @@ fn nested_background(svg: &str, width: &str, height: &str) -> Result<String, Bac
         }
     }
     nested.push_str(&svg[cursor..element.end]);
-    Ok(nested)
+    Ok(NestedBackground {
+        dtd_subset: internal_dtd_subset(&svg[..element.start]),
+        element: nested,
+    })
 }
 
 fn path_d(path: &PathData) -> String {

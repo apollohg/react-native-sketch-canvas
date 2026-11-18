@@ -164,3 +164,20 @@ fn invalid_background_errors() {
         std::fs::read_to_string(fixtures_dir().join("backgrounds/invalid.svg")).expect("fixture");
     assert!(export_svg(&doc(TWO_STROKES), Some(&invalid)).is_err());
 }
+
+#[test]
+fn background_entities_survive_export() {
+    let background = "<?xml version=\"1.0\"?>\n<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\" [\n<!ENTITY blue \"#0000FF\">\n]>\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\" fill=\"&blue;\"/></svg>";
+    let svg = export_svg(
+        &doc(r#"{"version":1,"width":10,"height":10,"strokes":[]}"#),
+        Some(background),
+    )
+    .expect("export");
+    let pixmap = render(&svg, 10, 10);
+    let centre = pixmap.pixel(5, 5).expect("pixel");
+    assert_eq!(
+        (centre.red(), centre.green(), centre.blue(), centre.alpha()),
+        (0, 0, 255, 255),
+        "{svg}"
+    );
+}
