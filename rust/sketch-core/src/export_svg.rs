@@ -8,10 +8,9 @@ use crate::{
     VERB_CUBIC, VERB_LINE, VERB_MOVE, VERB_QUAD,
 };
 
-/// Root attributes replaced when nesting a background, so the nested `<svg>` fills the document
-/// and its default `preserveAspectRatio` performs the aspect-fit.
-const REPLACED_BACKGROUND_ATTRIBUTES: [&str; 5] =
-    ["x", "y", "width", "height", "preserveAspectRatio"];
+/// Root attributes replaced by the background's resolved size, so units and percentages resolve
+/// exactly as they did when the canvas parsed it; `x` and `y` are ignored on an outermost `<svg>`.
+const REPLACED_BACKGROUND_ATTRIBUTES: [&str; 4] = ["x", "y", "width", "height"];
 
 /// Exported background markup beyond this is rejected; entity expansion can amplify input.
 const MAX_NESTED_BACKGROUND_BYTES: usize = 32 * 1024 * 1024;
@@ -62,17 +61,17 @@ fn nested_background(svg: &str, width: &str, height: &str) -> Result<String, Bac
     let xml = roxmltree::Document::parse_with_options(svg, options)
         .map_err(|e| invalid(e.to_string()))?;
     let root = xml.root_element();
-    let mut fitted = format!(r#" x="0" y="0" width="{width}" height="{height}""#);
-    if root.attribute("viewBox").is_none() {
-        let _ = write!(
-            fitted,
-            r#" viewBox="0 0 {} {}""#,
-            format_number(background.width),
-            format_number(background.height)
-        );
-    }
-    let mut out = String::with_capacity(svg.len());
-    write_element(root, None, &fitted, &mut out);
+    let (bw, bh) = (
+        format_number(background.width),
+        format_number(background.height),
+    );
+    let sized = format!(r#" width="{bw}" height="{bh}""#);
+    // The outer `<svg>` aspect-fits the background's size into the document, as the canvas does.
+    let mut out = format!(
+        r#"<svg x="0" y="0" width="{width}" height="{height}" viewBox="0 0 {bw} {bh}">"#
+    );
+    write_root(root, &sized, &mut out);
+    out.push_str("</svg>");
     if out.len() > MAX_NESTED_BACKGROUND_BYTES {
         return Err(invalid(format!(
             "background markup exceeds {MAX_NESTED_BACKGROUND_BYTES} bytes"
@@ -81,14 +80,46 @@ fn nested_background(svg: &str, width: &str, height: &str) -> Result<String, Bac
     Ok(out)
 }
 
-/// Writes an element; `fitted` attributes replace the root's own position and size.
-fn write_element(
-    node: roxmltree::Node,
-    parent: Option<roxmltree::Node>,
-    fitted: &str,
-    out: &mut String,
-) {
-    let is_root = parent.is_none();
+enum Step<'a, 'input> {
+    Open(roxmltree::Node<'a, 'input>),
+    Text(&'a str),
+    Close(String),
+}
+
+/// Writes the background's root element and its content without recursion, so markup of any
+/// depth cannot overflow the stack; `sized` replaces the root's own position and size.
+fn write_root(root: roxmltree::Node, sized: &str, out: &mut String) {
+    let mut steps = vec![Step::Open(root)];
+    while let Some(step) = steps.pop() {
+        match step {
+            Step::Close(tag) => {
+                let _ = write!(out, "</{tag}>");
+            }
+            Step::Text(text) => escape_into(out, text, false),
+            Step::Open(node) => {
+                let is_root = node == root;
+                let tag = write_start_tag(node, is_root, if is_root { sized } else { "" }, out);
+                if !node.has_children() {
+                    out.push_str("/>");
+                    continue;
+                }
+                out.push('>');
+                steps.push(Step::Close(tag));
+                for child in node.children().rev() {
+                    if child.is_element() {
+                        steps.push(Step::Open(child));
+                    } else if let Some(text) = child.is_text().then(|| child.text()).flatten() {
+                        steps.push(Step::Text(text));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Writes `<tag` and its attributes; returns the qualified tag name for the closing tag.
+fn write_start_tag(node: roxmltree::Node, is_root: bool, sized: &str, out: &mut String) -> String {
+    let parent = node.parent_element().filter(|_| !is_root);
     let tag = qualified_name(node, node.tag_name().namespace(), node.tag_name().name());
     let _ = write!(out, "<{tag}");
     for namespace in node.namespaces() {
@@ -101,7 +132,7 @@ fn write_element(
             None => write_attribute(out, "xmlns", namespace.uri()),
         }
     }
-    out.push_str(fitted);
+    out.push_str(sized);
     for attribute in node.attributes() {
         let replaced = is_root
             && attribute.namespace().is_none()
@@ -118,19 +149,7 @@ fn write_element(
         };
         write_attribute(out, &name, attribute.value());
     }
-    if !node.has_children() {
-        out.push_str("/>");
-        return;
-    }
-    out.push('>');
-    for child in node.children() {
-        if child.is_element() {
-            write_element(child, Some(node), "", out);
-        } else if let Some(text) = child.is_text().then(|| child.text()).flatten() {
-            escape_into(out, text, false);
-        }
-    }
-    let _ = write!(out, "</{tag}>");
+    tag
 }
 
 /// A namespaced attribute needs a named prefix; well-formed XML always has one in scope.
