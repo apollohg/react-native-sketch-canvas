@@ -86,7 +86,7 @@ fn fixed_pen_gives_exact_widths() {
         &horizontal(30, 5.0),
     );
     assert!(
-        stroke.points.iter().all(|p| p.w == 4.0),
+        stroke.points.iter().all(|p| p.w == 1.0),
         "widths: {:?}",
         widths(&stroke)
     );
@@ -155,10 +155,10 @@ fn widths_stay_within_bounds() {
         );
         for (i, w) in widths(&stroke).iter().enumerate() {
             assert!(
-                (min / scale..=max / scale).contains(w),
+                (min * scale..=max * scale).contains(w),
                 "{kind:?} point {i}: width {w} outside [{}, {}]",
-                min / scale,
-                max / scale
+                min * scale,
+                max * scale
             );
         }
     }

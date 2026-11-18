@@ -208,7 +208,7 @@ impl StrokeBuilder {
         Point {
             x: x.clamp(-MAX_COORDINATE, MAX_COORDINATE),
             y: y.clamp(-MAX_COORDINATE, MAX_COORDINATE),
-            w: (view_width / self.scale).min(MAX_COORDINATE),
+            w: (view_width * self.scale).min(MAX_COORDINATE),
         }
     }
 }
