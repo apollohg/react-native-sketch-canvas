@@ -25,7 +25,9 @@
         "build:rust:android": "bash rust/generate-bindings.sh && bash rust/build-android.sh",
         "build:rust:ios": "bash rust/generate-bindings.sh && bash rust/build-ios.sh",
         "install:example:pods": "cd example/ios && pod install --no-repo-update",
+        "install:ios-test-pods": "cd ios-tests && xcodegen generate && pod install --no-repo-update",
         "lint": "eslint src",
+        "lint:ios": "node scripts/swiftlint.mjs lint --strict",
         "lint:rust": "cargo +1.95.0 fmt --manifest-path rust/sketch-core/Cargo.toml --check && cargo +1.95.0 clippy --manifest-path rust/sketch-core/Cargo.toml --all-targets --all-features -- -D warnings",
         "prebuild:example": "npm --prefix example run prebuild",
         "prebuild:example:android": "npm --prefix example run prebuild:android",
@@ -36,6 +38,7 @@
         "run:example:ios": "npm --prefix example run ios",
         "start:example": "npm --prefix example start",
         "test": "jest --runInBand --watchman=false",
+        "test:ios": "bash ./scripts/run-ios-tests.sh",
         "test:rust": "./rust/toolchain-cargo.sh test --manifest-path rust/sketch-core/Cargo.toml --features ffi",
         "typecheck": "tsc --noEmit"
     },

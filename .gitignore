@@ -24,3 +24,6 @@ ios-tests/*.xcworkspace
 
 npm-debug.log*
 rust/ios/*/
+.tmp
+ios-tests/build
+ios-tests/.xcode.env.local
