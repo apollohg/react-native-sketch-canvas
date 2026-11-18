@@ -1,0 +1,56 @@
+name: Publish sketch-core WebAssembly
+
+on:
+  push:
+    tags: ['sketch-core-v*']
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-wasm
+  cancel-in-progress: false
+
+env:
+  PACKAGE_NAME: '@apollohg/sketch-core-wasm'
+  REGISTRY: https://npm.pkg.github.com
+  RUST_TOOLCHAIN: 1.95.0
+  WASM_TARGET: wasm32-unknown-unknown
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: ${{ env.REGISTRY }}
+          scope: '@apollohg'
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }} for ${{ env.WASM_TARGET }}
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "$WASM_TARGET"
+      - name: Install the locked wasm-bindgen CLI
+        run: |
+          source rust/wasm-bindgen.sh
+          cargo "+$RUST_TOOLCHAIN" install --locked wasm-bindgen-cli --version "$(wasm_bindgen_locked_version)"
+      - run: npm run notices:check
+      - run: npm run test:rust
+      - name: Build the package for the tag's version
+        run: bash rust/build-wasm.sh "${GITHUB_REF_NAME#sketch-core-v}"
+      - run: npm run test:wasm
+      - name: Publish
+        working-directory: rust/wasm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "$PACKAGE_NAME@$version" version > /dev/null 2>&1; then
+            echo "$PACKAGE_NAME@$version is already published"
+            exit 0
+          fi
+          tag=latest
+          if [[ "$version" == *-* ]]; then
+            tag=next
+          fi
+          npm publish --ignore-scripts --tag "$tag"

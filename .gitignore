@@ -17,6 +17,7 @@ rust/android/*/libsketch_core.so
 rust/ios/SketchCore.xcframework
 rust/ios/*/libsketch_core.a
 rust/ios/sim-fat
+rust/wasm
 ios/SketchCore.xcframework
 ios-tests/Pods
 ios-tests/*.xcodeproj

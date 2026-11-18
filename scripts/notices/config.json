@@ -7,8 +7,32 @@
             "features": [
                 "ffi"
             ],
+            "targets": [
+                "aarch64-apple-ios",
+                "aarch64-apple-ios-sim",
+                "x86_64-apple-ios",
+                "aarch64-linux-android",
+                "armv7-linux-androideabi",
+                "i686-linux-android",
+                "x86_64-linux-android"
+            ],
+            "targetsDescription": "all seven shipped iOS/Android Rust targets",
             "description": "`@apollohg/react-native-sketch-canvas` \u2014 the Rust core built with its `ffi` feature for the shipped iOS and Android libraries, generated UniFFI bindings and native dependencies.",
             "supplement": "scripts/notices/sketch-supplement.md"
+        },
+        {
+            "manifest": "rust/sketch-wasm/Cargo.toml",
+            "output": "rust/sketch-wasm/THIRD_PARTY_NOTICES.md",
+            "features": [],
+            "targets": [
+                "wasm32-unknown-unknown"
+            ],
+            "targetsDescription": "the shipped `wasm32-unknown-unknown` target",
+            "firstPartyCrates": [
+                "rust/sketch-core"
+            ],
+            "description": "`@apollohg/sketch-core-wasm` \u2014 the Rust core built without its `ffi` feature into a WebAssembly module, its generated wasm-bindgen JavaScript glue and WebAssembly dependencies.",
+            "supplement": "scripts/notices/sketch-wasm-supplement.md"
         }
     ],
     "localSources": {},

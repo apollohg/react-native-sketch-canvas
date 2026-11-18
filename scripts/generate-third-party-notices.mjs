@@ -12,15 +12,6 @@ const minimumFenceLength = 4;
 const cratesIoSource = 'registry+https://github.com/rust-lang/crates.io-index';
 const noticeFilePattern = /^(?:licen[sc]e|copying|copyright|notice|unlicense)(?:$|[._-])/i;
 const excludedDirectories = new Set(['.git', 'target', 'node_modules']);
-const shippedTargets = [
-    'aarch64-apple-ios',
-    'aarch64-apple-ios-sim',
-    'x86_64-apple-ios',
-    'aarch64-linux-android',
-    'armv7-linux-androideabi',
-    'i686-linux-android',
-    'x86_64-linux-android',
-];
 
 function compare(left, right) {
     return left < right ? -1 : left > right ? 1 : 0;
@@ -42,7 +33,7 @@ function cargo(args, manifestPath, offline) {
     });
 }
 
-export function collectRustPackages(manifestPath, { offline = false, features = [] } = {}) {
+export function collectRustPackages(manifestPath, { offline = false, features = [], targets, firstPartyDirectories = [] }) {
     const featureArgs = features.length > 0 ? ['--features', features.join(',')] : [];
     const metadata = parseJson(cargo(['metadata', '--format-version', '1', ...featureArgs], manifestPath, offline), 'Cargo metadata');
     const packagesByKey = new Map();
@@ -53,7 +44,8 @@ export function collectRustPackages(manifestPath, { offline = false, features = 
         packagesByKey.set(key, matches);
     }
     const selected = new Map();
-    for (const target of shippedTargets) {
+    const firstParty = new Set(firstPartyDirectories);
+    for (const target of targets) {
         const tree = cargo([
             'tree', '--target', target, '--edges', 'normal,build',
             ...featureArgs,
@@ -69,7 +61,8 @@ export function collectRustPackages(manifestPath, { offline = false, features = 
                 throw new Error(`Cannot uniquely resolve Cargo tree entry: ${line}`);
             }
             const pkg = matches[0];
-            if (pkg.id !== metadata.resolve.root) selected.set(pkg.id, pkg);
+            const isFirstParty = pkg.source === null && firstParty.has(path.dirname(pkg.manifest_path));
+            if (pkg.id !== metadata.resolve.root && !isFirstParty) selected.set(pkg.id, pkg);
         }
     }
     return [...selected.values()].sort((left, right) => compare(left.name, right.name) || compare(left.version, right.version));
@@ -178,7 +171,12 @@ function generateNotices({ check, offline }) {
     const outputs = new Map();
     for (const scope of config.packages) {
         console.log(`Reading locked Rust dependencies for ${scope.output}...`);
-        const packages = collectRustPackages(path.join(repoRoot, scope.manifest), { offline, features: scope.features });
+        const packages = collectRustPackages(path.join(repoRoot, scope.manifest), {
+            offline,
+            features: scope.features,
+            targets: scope.targets,
+            firstPartyDirectories: (scope.firstPartyCrates ?? []).map(directory => path.join(repoRoot, directory)),
+        });
         for (const [name, version] of Object.entries(scope.reviewedAssetVersions ?? {})) {
             if (!packages.some(pkg => pkg.name === name && pkg.version === version)) {
                 throw new Error(`${name}: bundled assets changed; review ${scope.supplement} and reviewedAssetVersions`);
@@ -196,7 +194,7 @@ function generateNotices({ check, offline }) {
             '## Package scope',
             scope.description,
             '## Rust dependencies',
-            'This inventory is the union of the locked normal and build dependency graphs for all seven shipped iOS/Android Rust targets. Build dependencies and procedural macros are included conservatively; test-only and optional CLI-only tools are not represented as shipped runtime code. Upstream alternative license texts are retained as supplied; their presence does not convert an OR choice into an AND requirement.',
+            `This inventory is the union of the locked normal and build dependency graphs for ${scope.targetsDescription}. Build dependencies and procedural macros are included conservatively; test-only and optional CLI-only tools are not represented as shipped runtime code. Upstream alternative license texts are retained as supplied; their presence does not convert an OR choice into an AND requirement.`,
             `The Rust standard library and compiler runtime notices are supplied separately in [RUST-STANDARD-LIBRARY-NOTICES.html](RUST-STANDARD-LIBRARY-NOTICES.html), copied from the pinned Rust ${rustVersion} distribution.`,
             ['| Crate | Version | Upstream license expression | Corresponding source |', '| --- | --- | --- | --- |', ...inventory].join('\n'),
             ...sections,
