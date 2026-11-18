@@ -1,7 +1,8 @@
 //! Turns pointer samples into stored stroke points. These constants are capture tuning, not
 //! part of the document format: changing them only affects strokes drawn afterwards.
 
-use crate::{outline_segments, outline_tail, Affine, Color, PathData, Point, Stroke};
+use crate::outline::{live_tail, pieces_between, StableCentreLine};
+use crate::{outline_tail, Affine, Color, PathData, Point, Stroke};
 
 /// A live update's tail never exceeds this many verbs; a longer one is a bug.
 pub const TAIL_MAX_VERBS: usize = 512;
@@ -115,6 +116,7 @@ pub(crate) struct StrokeBuilder {
     points: Vec<Point>,
     last_stored: InputSample,
     pending: Option<InputSample>,
+    centre_line: StableCentreLine,
     settled_next: usize,
 }
 
@@ -130,6 +132,7 @@ impl StrokeBuilder {
             points: Vec::new(),
             last_stored: sample,
             pending: None,
+            centre_line: StableCentreLine::default(),
             settled_next: 0,
         };
         let point = builder.to_document(sample, width);
@@ -149,19 +152,34 @@ impl StrokeBuilder {
     }
 
     /// Settled geometry since the last call, plus a tail through the latest and predicted samples.
+    /// Work depends on the samples added since the last call, not on the stroke's length.
     pub(crate) fn live_update(&mut self, predicted: &[InputSample]) -> LiveUpdate {
-        let (settled, next) = outline_segments(&self.points, self.settled_next);
-        self.settled_next = next;
-        let mut provisional = self.points.clone();
+        self.centre_line.extend(&self.points);
+        let stable = self.centre_line.samples();
+        let from = self.settled_next;
+        let settled_end = stable.len().saturating_sub(1).max(from);
+        let settled = pieces_between(stable, from, settled_end);
+        self.settled_next = settled_end;
         let mut model = self.model;
-        for &sample in self.pending.iter().chain(predicted) {
-            let width = model.advance(sample);
-            provisional.push(self.to_document(sample, width));
-        }
-        LiveUpdate {
-            settled,
-            tail: outline_tail(&provisional, self.settled_next),
-        }
+        let provisional: Vec<Point> = self
+            .pending
+            .iter()
+            .chain(predicted)
+            .map(|&sample| self.to_document(sample, model.advance(sample)))
+            .collect();
+        let n = self.points.len();
+        let tail = if n < 3 {
+            let all: Vec<Point> = self.points.iter().chain(&provisional).copied().collect();
+            outline_tail(&all, settled_end)
+        } else {
+            let recent: Vec<Point> = self.points[n - 2..]
+                .iter()
+                .chain(&provisional)
+                .copied()
+                .collect();
+            live_tail(&stable[settled_end..], &recent, settled_end)
+        };
+        LiveUpdate { settled, tail }
     }
 
     pub(crate) fn finish(mut self) -> Stroke {

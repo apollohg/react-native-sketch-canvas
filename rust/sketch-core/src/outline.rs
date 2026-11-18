@@ -65,47 +65,79 @@ pub fn centre_line(points: &[Point]) -> Vec<Point> {
 
 /// Returns S plus the number of leading samples that appending further points can never change.
 fn centre_line_with_stable_len(points: &[Point]) -> (Vec<Point>, usize) {
-    let mut samples = Vec::new();
-    let n = points.len();
-    if n < 3 {
+    let Some(&last) = points.last() else {
+        return (Vec::new(), 0);
+    };
+    if points.len() < 3 {
+        let mut samples = Vec::new();
         for &p in points {
             push_sample(&mut samples, p);
         }
         let stable_len = samples.len().min(1);
         return (samples, stable_len);
     }
-    push_sample(&mut samples, points[0]);
-    push_sample(&mut samples, midpoint(points[0], points[1]));
-    for window in points.windows(3) {
-        let (start, control, end) = (
-            midpoint(window[0], window[1]),
-            window[1],
-            midpoint(window[1], window[2]),
-        );
-        let max_radius = (start.w / 2.0).max(control.w / 2.0).max(end.w / 2.0);
-        let tolerance = (FLATTEN_TOLERANCE_PER_RADIUS * max_radius).max(MIN_FLATTEN_TOLERANCE);
-        let second_difference =
-            (start.x - 2.0 * control.x + end.x).hypot(start.y - 2.0 * control.y + end.y);
-        let steps = ((second_difference / (4.0 * tolerance)).sqrt().ceil() as usize)
-            .clamp(1, MAX_FLATTEN_STEPS);
-        for j in 1..=steps {
-            let t = j as f64 / steps as f64;
-            let quad = |a: f64, b: f64, c: f64| {
-                (1.0 - t) * (1.0 - t) * a + 2.0 * (1.0 - t) * t * b + t * t * c
-            };
-            push_sample(
-                &mut samples,
-                Point {
-                    x: quad(start.x, control.x, end.x),
-                    y: quad(start.y, control.y, end.y),
-                    w: quad(start.w, control.w, end.w),
-                },
-            );
-        }
-    }
+    let mut line = StableCentreLine::default();
+    line.extend(points);
+    let mut samples = line.samples;
     let stable_len = samples.len();
-    push_sample(&mut samples, points[n - 1]);
+    push_sample(&mut samples, last);
     (samples, stable_len)
+}
+
+/// The samples of S that appending points can never change, built as a stroke grows.
+#[derive(Debug, Default)]
+pub(crate) struct StableCentreLine {
+    samples: Vec<Point>,
+    quadratics: usize,
+}
+
+impl StableCentreLine {
+    /// Adds the quadratics completed since the last call; `points` only ever grows.
+    pub(crate) fn extend(&mut self, points: &[Point]) {
+        if points.len() < 3 {
+            return;
+        }
+        if self.samples.is_empty() {
+            push_sample(&mut self.samples, points[0]);
+            push_sample(&mut self.samples, midpoint(points[0], points[1]));
+        }
+        for window in points[self.quadratics..].windows(3) {
+            push_quadratic(&mut self.samples, window);
+        }
+        self.quadratics = points.len() - 2;
+    }
+
+    pub(crate) fn samples(&self) -> &[Point] {
+        &self.samples
+    }
+}
+
+fn push_quadratic(samples: &mut Vec<Point>, window: &[Point]) {
+    let (start, control, end) = (
+        midpoint(window[0], window[1]),
+        window[1],
+        midpoint(window[1], window[2]),
+    );
+    let max_radius = (start.w / 2.0).max(control.w / 2.0).max(end.w / 2.0);
+    let tolerance = (FLATTEN_TOLERANCE_PER_RADIUS * max_radius).max(MIN_FLATTEN_TOLERANCE);
+    let second_difference =
+        (start.x - 2.0 * control.x + end.x).hypot(start.y - 2.0 * control.y + end.y);
+    let steps = ((second_difference / (4.0 * tolerance)).sqrt().ceil() as usize)
+        .clamp(1, MAX_FLATTEN_STEPS);
+    for j in 1..=steps {
+        let t = j as f64 / steps as f64;
+        let quad = |a: f64, b: f64, c: f64| {
+            (1.0 - t) * (1.0 - t) * a + 2.0 * (1.0 - t) * t * b + t * t * c
+        };
+        push_sample(
+            samples,
+            Point {
+                x: quad(start.x, control.x, end.x),
+                y: quad(start.y, control.y, end.y),
+                w: quad(start.w, control.w, end.w),
+            },
+        );
+    }
 }
 
 fn midpoint(a: Point, b: Point) -> Point {
@@ -135,21 +167,50 @@ pub fn outline_stroke(stroke: &Stroke) -> PathData {
 pub fn outline_segments(points: &[Point], from_sample: usize) -> (PathData, usize) {
     let (samples, stable_len) = centre_line_with_stable_len(points);
     let settled_end = stable_len.saturating_sub(1).max(from_sample);
-    let mut path = PathData::default();
-    for pair in samples.windows(2).take(settled_end).skip(from_sample) {
-        emit_pair(&mut path, pair[0], pair[1]);
+    (
+        pieces_between(&samples, from_sample, settled_end),
+        settled_end,
+    )
+}
+
+/// The pieces for sample pairs `from..to`.
+pub(crate) fn pieces_between(samples: &[Point], from: usize, to: usize) -> PathData {
+    match samples.get(from..=to) {
+        Some(range) if to > from => pieces(range, false),
+        _ => PathData::default(),
     }
-    (path, settled_end)
 }
 
 /// Emits every piece from sample pair `from_sample` to the end of the stroke.
 pub fn outline_tail(points: &[Point], from_sample: usize) -> PathData {
     let samples = centre_line(points);
-    let mut path = PathData::default();
-    if samples.len() == 1 && from_sample == 0 {
-        emit_circle(&mut path, samples[0]);
+    pieces(
+        samples.get(from_sample..).unwrap_or_default(),
+        from_sample == 0,
+    )
+}
+
+/// The pieces after a stroke's stable samples, without revisiting earlier points.
+/// `stable_from` is the stable samples from sample `from_sample` on; `recent` is the stroke's
+/// last two points followed by any provisional ones.
+pub(crate) fn live_tail(stable_from: &[Point], recent: &[Point], from_sample: usize) -> PathData {
+    let mut samples = stable_from.to_vec();
+    for window in recent.windows(3) {
+        push_quadratic(&mut samples, window);
     }
-    for pair in samples.windows(2).skip(from_sample) {
+    if let Some(&last) = recent.last() {
+        push_sample(&mut samples, last);
+    }
+    pieces(&samples, from_sample == 0)
+}
+
+/// The pieces for consecutive samples; a lone sample of a whole stroke is a circle.
+fn pieces(samples: &[Point], whole: bool) -> PathData {
+    let mut path = PathData::default();
+    if let ([sample], true) = (samples, whole) {
+        emit_circle(&mut path, *sample);
+    }
+    for pair in samples.windows(2) {
         emit_pair(&mut path, pair[0], pair[1]);
     }
     path

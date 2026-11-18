@@ -1,6 +1,6 @@
 use sketch_core::{
-    outline_stroke, Affine, Color, Document, InputSample, LiveUpdate, PathData, Pen, PointerKind,
-    Session, Stroke, TAIL_MAX_VERBS,
+    outline_stroke, Affine, Color, Document, InputSample, LiveUpdate, PathData, Pen, Point,
+    PointerKind, Session, Stroke, TAIL_MAX_VERBS,
 };
 
 const FRAME_MS: f64 = 16.0;
@@ -304,5 +304,104 @@ fn long_stroke_updates_are_bounded() {
     assert_eq!(
         settled, whole,
         "settled + final tail differs from the committed outline"
+    );
+}
+
+fn spiral(count: usize) -> Vec<InputSample> {
+    (0..count)
+        .map(|i| {
+            let a = i as f64 * 0.01;
+            touch(
+                500.0 + (100.0 + a * 10.0) * a.cos(),
+                500.0 + (100.0 + a * 10.0) * a.sin(),
+                i as f64 * 4.0,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn live_tail_matches_outline_through_predicted_samples() {
+    const WIDTH: f64 = 2.0;
+    let samples: Vec<InputSample> = (0..60)
+        .map(|i| {
+            let a = i as f64 * 0.3;
+            touch(
+                300.0 + 8.0 * i as f64 * a.cos(),
+                300.0 + 8.0 * i as f64 * a.sin(),
+                i as f64 * FRAME_MS,
+            )
+        })
+        .collect();
+    let as_point = |s: &InputSample| Point {
+        x: s.x,
+        y: s.y,
+        w: WIDTH,
+    };
+    let mut s = session();
+    let mut settled = s
+        .begin_stroke(pen(WIDTH, WIDTH), Affine::IDENTITY, samples[0])
+        .settled;
+    for i in 1..samples.len() {
+        let predicted = [
+            touch(
+                samples[i].x + 9.0,
+                samples[i].y - 4.0,
+                samples[i].time_ms + 8.0,
+            ),
+            touch(
+                samples[i].x + 15.0,
+                samples[i].y + 6.0,
+                samples[i].time_ms + 16.0,
+            ),
+        ];
+        let update = s.extend_stroke(std::slice::from_ref(&samples[i]), &predicted);
+        settled.append(&update.settled);
+        let mut live = settled.clone();
+        live.append(&update.tail);
+        let provisional = Stroke {
+            color: pen(WIDTH, WIDTH).color,
+            points: samples[..=i]
+                .iter()
+                .chain(&predicted)
+                .map(as_point)
+                .collect(),
+        };
+        assert_eq!(
+            live,
+            outline_stroke(&provisional),
+            "update {i}: settled + tail differs from the outline through the predicted samples"
+        );
+    }
+}
+
+/// Median wall time of `extend_stroke` over `updates` updates of two samples each.
+fn median_update_time(s: &mut Session, samples: &[InputSample]) -> std::time::Duration {
+    let mut times: Vec<std::time::Duration> = samples
+        .chunks(2)
+        .map(|chunk| {
+            let started = std::time::Instant::now();
+            s.extend_stroke(chunk, &[]);
+            started.elapsed()
+        })
+        .collect();
+    times.sort();
+    times[times.len() / 2]
+}
+
+#[test]
+fn live_update_cost_does_not_grow_with_stroke_length() {
+    const LONG_STROKE: usize = 16_000;
+    const MEASURED: usize = 400;
+    const MAX_GROWTH: u32 = 4;
+    let samples = spiral(LONG_STROKE + MEASURED);
+    let mut s = session();
+    s.begin_stroke(pen(1.0, 3.0), Affine::IDENTITY, samples[0]);
+    let early = median_update_time(&mut s, &samples[1..=MEASURED]);
+    s.extend_stroke(&samples[MEASURED + 1..LONG_STROKE], &[]);
+    let late = median_update_time(&mut s, &samples[LONG_STROKE..]);
+    assert!(
+        late <= early * MAX_GROWTH,
+        "median update took {early:?} near the start and {late:?} after {LONG_STROKE} samples"
     );
 }
