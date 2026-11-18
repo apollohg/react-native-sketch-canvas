@@ -2612,14 +2612,17 @@ extension PointerKind: Equatable, Hashable {}
 
 
 
+/**
+ * Crosses the FFI flat: each platform receives the variant and its message.
+ */
 public enum SketchError: Swift.Error {
 
     
     
-    case InvalidDocument(message: String
-    )
-    case InvalidBackground(message: String
-    )
+    case InvalidDocument(message: String)
+    
+    case InvalidBackground(message: String)
+    
 }
 
 
@@ -2638,12 +2641,14 @@ public struct FfiConverterTypeSketchError: FfiConverterRustBuffer {
         
         case 1: return .InvalidDocument(
             message: try FfiConverterString.read(from: &buf)
-            )
+        )
+        
         case 2: return .InvalidBackground(
             message: try FfiConverterString.read(from: &buf)
-            )
+        )
+        
 
-         default: throw UniffiInternalError.unexpectedEnumCase
+        default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
 
@@ -2653,16 +2658,12 @@ public struct FfiConverterTypeSketchError: FfiConverterRustBuffer {
         
 
         
-        
-        case let .InvalidDocument(message):
+        case .InvalidDocument(_ /* message is ignored*/):
             writeInt(&buf, Int32(1))
-            FfiConverterString.write(message, into: &buf)
-            
-        
-        case let .InvalidBackground(message):
+        case .InvalidBackground(_ /* message is ignored*/):
             writeInt(&buf, Int32(2))
-            FfiConverterString.write(message, into: &buf)
-            
+
+        
         }
     }
 }

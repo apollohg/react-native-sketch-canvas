@@ -7,7 +7,9 @@ use crate::{
     Document, DocumentError, InputSample, LiveUpdate, PathData, Pen, Session, SessionState,
 };
 
+/// Crosses the FFI flat: each platform receives the variant and its message.
 #[derive(Debug, Clone, PartialEq, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum SketchError {
     #[error("{message}")]
     InvalidDocument { message: String },

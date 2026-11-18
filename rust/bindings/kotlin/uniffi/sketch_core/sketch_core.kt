@@ -2943,30 +2943,19 @@ public object FfiConverterTypePointerKind: FfiConverterRustBuffer<PointerKind> {
 
 
 
-sealed class SketchException: kotlin.Exception() {
-    
-    class InvalidDocument(
+/**
+ * Crosses the FFI flat: each platform receives the variant and its message.
+ */
+sealed class SketchException(message: String): kotlin.Exception(message) {
         
-        val `message`: kotlin.String
-        ) : SketchException() {
-        override val message
-            get() = "message=${ `message` }"
-    }
-    
-    class InvalidBackground(
+        class InvalidDocument(message: String) : SketchException(message)
         
-        val `message`: kotlin.String
-        ) : SketchException() {
-        override val message
-            get() = "message=${ `message` }"
-    }
-    
+        class InvalidBackground(message: String) : SketchException(message)
+        
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<SketchException> {
         override fun lift(error_buf: RustBuffer.ByValue): SketchException = FfiConverterTypeSketchError.lift(error_buf)
     }
-
-    
 }
 
 /**
@@ -2975,43 +2964,26 @@ sealed class SketchException: kotlin.Exception() {
 public object FfiConverterTypeSketchError : FfiConverterRustBuffer<SketchException> {
     override fun read(buf: ByteBuffer): SketchException {
         
-
-        return when(buf.getInt()) {
-            1 -> SketchException.InvalidDocument(
-                FfiConverterString.read(buf),
-                )
-            2 -> SketchException.InvalidBackground(
-                FfiConverterString.read(buf),
-                )
+            return when(buf.getInt()) {
+            1 -> SketchException.InvalidDocument(FfiConverterString.read(buf))
+            2 -> SketchException.InvalidBackground(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
+        
     }
 
     override fun allocationSize(value: SketchException): ULong {
-        return when(value) {
-            is SketchException.InvalidDocument -> (
-                // Add the size for the Int that specifies the variant plus the size needed for all fields
-                4UL
-                + FfiConverterString.allocationSize(value.`message`)
-            )
-            is SketchException.InvalidBackground -> (
-                // Add the size for the Int that specifies the variant plus the size needed for all fields
-                4UL
-                + FfiConverterString.allocationSize(value.`message`)
-            )
-        }
+        return 4UL
     }
 
     override fun write(value: SketchException, buf: ByteBuffer) {
         when(value) {
             is SketchException.InvalidDocument -> {
                 buf.putInt(1)
-                FfiConverterString.write(value.`message`, buf)
                 Unit
             }
             is SketchException.InvalidBackground -> {
                 buf.putInt(2)
-                FfiConverterString.write(value.`message`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

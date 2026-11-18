@@ -1,0 +1,104 @@
+import groovy.json.JsonSlurper
+
+plugins {
+    id 'com.android.library'
+    id 'expo-module-gradle-plugin'
+}
+
+def packageJson = new JsonSlurper().parse(file('../package.json'))
+def repositoryRoot = file('..').canonicalFile
+def hostOsName = System.getProperty('os.name').toLowerCase(java.util.Locale.ROOT)
+def hostSketchCoreLibraryName = hostOsName.contains('mac') ? 'libsketch_core.dylib' :
+    hostOsName.contains('windows') ? 'sketch_core.dll' :
+    'libsketch_core.so'
+def hostRustTargetDirectory = file("${System.getenv('CARGO_TARGET_DIR') ?: buildDir}/host-sketch-core")
+def hostSketchCoreLibrary = file("$hostRustTargetDirectory/release/$hostSketchCoreLibraryName")
+def pinnedCargoScript = new File(repositoryRoot, 'rust/toolchain-cargo.sh').absolutePath
+def hostCargoCommand = hostOsName.contains('windows') ? ['bash', pinnedCargoScript] : [pinnedCargoScript]
+
+group = 'com.apollohg'
+version = packageJson.version
+
+// Robolectric runs the UniFFI binding on the host JVM, which needs JNA's plain JAR (with its host
+// jnidispatch) rather than the Android AAR. Resolve it outside every Android configuration.
+configurations {
+    hostTestJna {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+}
+
+configurations.configureEach {
+    if (name.endsWith('UnitTestRuntimeClasspath')) {
+        exclude group: 'net.java.dev.jna', module: 'jna'
+    }
+}
+
+tasks.register('buildHostSketchCore', Exec) {
+    inputs.files(
+        fileTree(new File(repositoryRoot, 'rust/sketch-core')) {
+            include 'Cargo.toml', 'Cargo.lock', 'src/**/*.rs'
+        },
+        new File(pinnedCargoScript),
+        new File(repositoryRoot, 'rust/toolchain.sh'),
+    )
+    outputs.file(hostSketchCoreLibrary)
+    workingDir repositoryRoot
+    environment 'CARGO_TARGET_DIR', hostRustTargetDirectory.absolutePath
+    commandLine(*(hostCargoCommand + [
+        'build',
+        '--manifest-path', new File(repositoryRoot, 'rust/sketch-core/Cargo.toml').absolutePath,
+        '--release',
+        '--features', 'ffi',
+    ]))
+}
+
+// AGP replaces the unit-test runtime classpath late; prepend the raw JNA JAR in doFirst.
+def hostTestJnaClasspath = files(configurations.hostTestJna)
+tasks.withType(Test).configureEach {
+    dependsOn tasks.named('buildHostSketchCore')
+    inputs.files(hostTestJnaClasspath).withPropertyName('hostTestJnaClasspath')
+    testLogging.exceptionFormat = 'full'
+    systemProperty 'uniffi.component.sketch_core.libraryOverride', hostSketchCoreLibrary.absolutePath
+    doFirst {
+        classpath = hostTestJnaClasspath.plus(classpath)
+    }
+}
+
+android {
+    namespace "com.apollohg.sketchcanvas"
+    defaultConfig {
+        versionCode 1
+        versionName packageJson.version
+        consumerProguardFiles 'consumer-rules.pro'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    testOptions {
+        unitTests.includeAndroidResources = true
+    }
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["${projectDir}/../rust/android"]
+            java.srcDirs += ["${projectDir}/../rust/bindings/kotlin"]
+        }
+        androidTest {
+            assets.srcDirs += ["${projectDir}/../fixtures"]
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.facebook.react:react-android'
+
+    api 'net.java.dev.jna:jna:5.18.1@aar'
+    hostTestJna 'net.java.dev.jna:jna:5.18.1@jar'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.16'
+    testImplementation 'androidx.test:core:1.7.0'
+
+    androidTestImplementation 'androidx.test:core-ktx:1.7.0'
+    androidTestImplementation 'androidx.test:runner:1.7.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.3.0'
+}
