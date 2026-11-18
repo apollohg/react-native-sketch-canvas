@@ -51,6 +51,9 @@ class SketchCanvasView(context: Context, appContext: AppContext) : ExpoView(cont
     private var initialDocumentConsumed = false
     private var lastEmittedRevision: ULong? = null
 
+    /** Added to each session's own revision so revisions keep increasing when a session is replaced. */
+    private var revisionBase: ULong = 0u
+
     private val tracker = SketchPointerTracker()
     private val cache = SketchRasterCache()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -153,6 +156,7 @@ class SketchCanvasView(context: Context, appContext: AppContext) : ExpoView(cont
     private fun adopt(newSession: SketchSession) {
         initialDocumentConsumed = true
         session = newSession
+        lastEmittedRevision?.let { revisionBase = it + 1u }
         rebuildCache()
         emitChange(newSession.state())
     }
@@ -287,7 +291,8 @@ class SketchCanvasView(context: Context, appContext: AppContext) : ExpoView(cont
         pointerMoved(pointer, listOf(final))
         if (!tracker.ended(pointer)) return
         val color = liveColor ?: return
-        val commit = session?.endStroke() ?: return
+        // The core discards a stroke that would take the document past the format's limits.
+        val commit = session?.endStroke() ?: return cancelLiveStroke()
         cache.composite(commit.path, color, docToView().toMatrix())
         clearLive()
         invalidate()
@@ -443,15 +448,16 @@ class SketchCanvasView(context: Context, appContext: AppContext) : ExpoView(cont
     // region Events
 
     private fun emitChange(state: SessionState) {
-        if (state.revision == lastEmittedRevision) return
-        lastEmittedRevision = state.revision
+        val revision = revisionBase + state.revision
+        if (revision == lastEmittedRevision) return
+        lastEmittedRevision = revision
         emit(
             EVENT_CHANGE,
             mapOf(
                 "strokeCount" to state.strokeCount.toInt(),
                 "canUndo" to state.canUndo,
                 "canRedo" to state.canRedo,
-                "revision" to state.revision.toString()
+                "revision" to revision.toString()
             )
         )
     }

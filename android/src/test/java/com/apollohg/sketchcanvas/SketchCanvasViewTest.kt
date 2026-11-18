@@ -1,6 +1,9 @@
 package com.apollohg.sketchcanvas
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
@@ -354,7 +357,78 @@ class SketchCanvasViewTest {
         assertEquals(1, strokeCount(view))
     }
 
+    private fun awaitEvent(name: String) {
+        val deadline = System.currentTimeMillis() + TIMEOUT_MS
+        while (events.none { it.first == name } && System.currentTimeMillis() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(POLL_MS)
+        }
+        assertTrue("$name never arrived: $events", events.any { it.first == name })
+    }
+
+    private fun changes() = events.filter { it.first == "onSketchChange" }.map { it.second }
+
+    private fun fullDocument(): String {
+        val points = List(FORMAT_POINT_LIMIT) { "[1,1,1]" }.joinToString(",")
+        val stroke = """{"color":"#000000","points":[$points]}"""
+        return """{"version":1,"width":200,"height":200,"strokes":[$stroke]}"""
+    }
+
+    @Test
+    fun loadBeforeFirstSessionReportsLoadedDocument() {
+        val view = makeView { it.setBackgroundSvg(BACKGROUND_SVG) }
+        awaitResult<Unit> { view.loadDocument(TWO_STROKES, it) }.getOrThrow()
+        awaitEvent("onBackgroundLoad")
+
+        val changes = changes()
+        assertEquals("changes: $changes", 2, changes.last()["strokeCount"])
+        val revisions = changes.map { (it["revision"] as String).toULong() }
+        assertTrue(
+            "revisions must increase: $revisions",
+            revisions.zipWithNext().all { (a, b) -> a < b }
+        )
+    }
+
+    @Test
+    fun loadsApplyInCallOrder() {
+        val view = makeView()
+        var first: Result<Unit>? = null
+        view.loadDocument(fullDocument()) { first = it }
+        awaitResult<Unit> { view.loadDocument(TWO_STROKES, it) }.getOrThrow()
+
+        assertTrue("first load never finished", first != null)
+        assertEquals("the later loadDocument call must win", 2, strokeCount(view))
+    }
+
+    @Test
+    fun strokePastDocumentLimitLeavesNoInk() {
+        val view = makeView()
+        awaitResult<Unit> { view.loadDocument(fullDocument(), it) }.getOrThrow()
+        val changesBefore = changes().size
+        drawLine(view, 20f, 180f)
+
+        assertEquals(
+            "a discarded stroke must not end",
+            0,
+            events.count {
+                it.first == "onStrokeEnd"
+            }
+        )
+        assertEquals("changes: ${changes()}", changesBefore, changes().size)
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        assertEquals(
+            "the discarded stroke is still drawn",
+            0,
+            Color.alpha(bitmap.getPixel(100, 100))
+        )
+    }
+
     private companion object {
+        /** The format's point limit; a document holding this many points has no room for a stroke. */
+        const val FORMAT_POINT_LIMIT = 1_000_000
+        const val TWO_STROKES =
+            """{"version":1,"width":200,"height":200,"strokes":[{"color":"#FF0000","points":[[10,10,2]]},{"color":"#0000FF","points":[[20,20,2]]}]}"""
         const val STEPS = 10
         const val FRAME_MS = 16L
         const val TIMEOUT_MS = 5_000L

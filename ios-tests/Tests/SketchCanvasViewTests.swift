@@ -7,6 +7,9 @@ final class SketchCanvasViewTests: XCTestCase {
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><rect width="400" height="300" fill="#00FF00"/></svg>
     """
     private static let blackPen = (color: UIColor.black, min: 1.0, max: 3.0)
+    /// The format's point limit; a document holding this many points has no room for a stroke.
+    private static let formatPointLimit = 1_000_000
+    private static let twoStrokes = ##"{"version":1,"width":200,"height":200,"strokes":[{"color":"#FF0000","points":[[10,10,2]]},{"color":"#0000FF","points":[[20,20,2]]}]}"##
 
     private var changes: [[String: Any]] = []
     private var strokeEnds = 0
@@ -59,6 +62,27 @@ final class SketchCanvasViewTests: XCTestCase {
         view.loadDocument(json) { result = $0; done.fulfill() }
         wait(for: [done], timeout: 5)
         return result
+    }
+
+    private func fullDocument() -> String {
+        let points = Array(repeating: "[1,1,1]", count: Self.formatPointLimit).joined(separator: ",")
+        return ##"{"version":1,"width":200,"height":200,"strokes":[{"color":"#000000","points":["## + points + "]}]}"
+    }
+
+    /// Alpha of the view's own drawing at `point`, rendered at 1× into an RGBA bitmap.
+    private func alpha(of view: SketchCanvasView, at point: CGPoint) throws -> UInt8 {
+        let width = Int(view.bounds.width), height = Int(view.bounds.height)
+        let context = try XCTUnwrap(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: 1, y: -1)
+        UIGraphicsPushContext(context)
+        view.draw(view.bounds)
+        UIGraphicsPopContext()
+        let bytes = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        return bytes[Int(point.y) * width * 4 + Int(point.x) * 4 + 3]
     }
 
     func testStrokeCommitsThroughTouches() throws {
@@ -176,5 +200,42 @@ final class SketchCanvasViewTests: XCTestCase {
         XCTAssertFalse(view.hasLiveStroke)
         view.pointerEnded(2, nil)
         XCTAssertEqual(try strokes(of: view).count, 1)
+    }
+
+    func testLoadBeforeFirstSessionReportsLoadedDocument() throws {
+        let parsed = expectation(description: "background parsed")
+        let view = makeView { view in
+            view.onBackgroundLoad.onEventSent = { _ in parsed.fulfill() }
+            view.setBackgroundSvg(Self.backgroundSvg)
+        }
+        XCTAssertNoThrow(try load(Self.twoStrokes, into: view).get())
+        wait(for: [parsed], timeout: 5)
+
+        XCTAssertEqual(changes.last?["strokeCount"] as? Int, 2, "changes: \(changes)")
+        let revisions = changes.compactMap { ($0["revision"] as? String).flatMap(UInt64.init) }
+        XCTAssertEqual(revisions.count, changes.count, "changes: \(changes)")
+        XCTAssertTrue(zip(revisions, revisions.dropFirst()).allSatisfy { $0 < $1 }, "revisions must increase: \(revisions)")
+    }
+
+    func testLoadsApplyInCallOrder() throws {
+        let view = makeView()
+        let first = expectation(description: "first load")
+        let second = expectation(description: "second load")
+        view.loadDocument(fullDocument()) { _ in first.fulfill() }
+        view.loadDocument(Self.twoStrokes) { _ in second.fulfill() }
+        wait(for: [first, second], timeout: 30)
+
+        XCTAssertEqual(try strokes(of: view).count, 2, "the later loadDocument call must win")
+    }
+
+    func testStrokePastDocumentLimitLeavesNoInk() throws {
+        let view = makeView()
+        XCTAssertNoThrow(try load(fullDocument(), into: view).get())
+        let changesBefore = changes.count
+        drawLine(on: view, pointer: 1, from: 20, to: 180)
+
+        XCTAssertEqual(strokeEnds, 0, "a discarded stroke must not end")
+        XCTAssertEqual(changes.count, changesBefore, "changes: \(changes)")
+        XCTAssertEqual(try alpha(of: view, at: CGPoint(x: 100, y: 100)), 0, "the discarded stroke is still drawn")
     }
 }

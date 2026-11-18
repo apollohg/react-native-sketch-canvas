@@ -33,6 +33,8 @@ final class SketchCanvasView: ExpoView {
     private static let dirtyMargin: CGFloat = 2
     private static let pngDataUrlPrefix = "data:image/png;base64,"
     private static let noDocumentMessage = "The canvas has no document yet"
+    /// One serial queue for all canvases, so background work completes in call order.
+    private static let worker = DispatchQueue(label: "com.apollohg.sketchcanvas.worker", qos: .userInitiated)
 
     let onSketchChange = EventDispatcher()
     let onStrokeStart = EventDispatcher()
@@ -51,6 +53,8 @@ final class SketchCanvasView: ExpoView {
     private var initialDocument: String?
     private var initialDocumentConsumed = false
     private var lastEmittedRevision: UInt64?
+    /// Added to each session's own revision so revisions keep increasing when a session is replaced.
+    private var revisionBase: UInt64 = 0
     private var lastLayoutSize = CGSize.zero
 
     private var tracker = SketchPointerTracker()
@@ -92,7 +96,7 @@ final class SketchCanvasView: ExpoView {
         backgroundPending = svg != nil
         rebuildCache()
         guard let svg else { return }
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        Self.worker.async { [weak self] in
             let result = Result { try parseBackground(svg: svg) }
             DispatchQueue.main.async {
                 self?.backgroundParsed(svg, result)
@@ -150,6 +154,9 @@ final class SketchCanvasView: ExpoView {
         guard let newSession else { return }
         initialDocumentConsumed = true
         session = newSession
+        if let lastEmittedRevision {
+            revisionBase = lastEmittedRevision + 1
+        }
         rebuildCache()
         emitChange(newSession.state())
     }
@@ -296,7 +303,9 @@ final class SketchCanvasView: ExpoView {
         if let final {
             pointerMoved(pointer, samples: [final], predicted: [])
         }
-        guard tracker.ended(pointer), let color = liveColor, let commit = session?.endStroke() else { return }
+        guard tracker.ended(pointer), let color = liveColor else { return }
+        // The core discards a stroke that would take the document past the format's limits.
+        guard let commit = session?.endStroke() else { return cancelLiveStroke() }
         cache.composite(commit.path, color: color, transform: docToView)
         clearLive()
         invalidate(documentPath: CGPath.from(commit.path))
@@ -381,7 +390,7 @@ final class SketchCanvasView: ExpoView {
         guard let session else {
             return completion(.failure(SketchCanvasError.exportFailed(Self.noDocumentMessage)))
         }
-        DispatchQueue.global(qos: .userInitiated).async {
+        Self.worker.async {
             let json = session.toJson()
             DispatchQueue.main.async { completion(.success(json)) }
         }
@@ -390,7 +399,7 @@ final class SketchCanvasView: ExpoView {
     /// Parses off the main thread; an invalid document fails and leaves the canvas unchanged.
     func loadDocument(_ json: String, completion: @escaping (Result<Void, Error>) -> Void) {
         let existing = session
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        Self.worker.async { [weak self] in
             let result = Result { () -> SketchSession in
                 guard let existing else { return try SketchSession.fromJson(json: json) }
                 _ = try existing.loadJson(json: json)
@@ -422,7 +431,7 @@ final class SketchCanvasView: ExpoView {
             return completion(.failure(SketchCanvasError.exportFailed(Self.noDocumentMessage)))
         }
         let svg = includeBackground ? backgroundSvg : nil
-        DispatchQueue.global(qos: .userInitiated).async {
+        Self.worker.async {
             let result = Result { try session.exportSvg(background: svg) }
                 .mapError { error in SketchCanvasError.exportFailed((error as? SketchError).map(SketchCanvasError.init)?.message ?? "\(error)") }
             DispatchQueue.main.async { completion(result.mapError { $0 }) }
@@ -467,13 +476,14 @@ final class SketchCanvasView: ExpoView {
     // MARK: - Events
 
     private func emitChange(_ state: SessionState) {
-        guard state.revision != lastEmittedRevision else { return }
-        lastEmittedRevision = state.revision
+        let revision = revisionBase + state.revision
+        guard revision != lastEmittedRevision else { return }
+        lastEmittedRevision = revision
         onSketchChange([
             "strokeCount": Int(state.strokeCount),
             "canUndo": state.canUndo,
             "canRedo": state.canRedo,
-            "revision": String(state.revision)
+            "revision": String(revision)
         ])
     }
 
