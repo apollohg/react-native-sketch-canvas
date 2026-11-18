@@ -83,3 +83,64 @@ fn replace_document_resets_history() {
     assert_eq!(s.document().strokes, doc2.strokes);
     assert_eq!(state.revision, 2, "{state:?}");
 }
+
+#[test]
+fn commands_cancel_live_stroke() {
+    use sketch_core::{Affine, InputSample, Pen, PointerKind};
+    let pen = Pen {
+        color: Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
+        min_width: 1.0,
+        max_width: 3.0,
+    };
+    let sample = |x: f64| InputSample {
+        x,
+        y: 10.0,
+        time_ms: x,
+        pressure: None,
+        kind: PointerKind::Touch,
+    };
+    type Command = (&'static str, fn(&mut Session));
+    let commands: [Command; 4] = [
+        ("undo", |s| {
+            s.undo();
+        }),
+        ("redo", |s| {
+            s.redo();
+        }),
+        ("clear", |s| {
+            s.clear();
+        }),
+        ("replace_document", |s| {
+            let doc = s.document().clone();
+            s.replace_document(doc);
+        }),
+    ];
+    for (name, command) in commands {
+        let mut s = session();
+        s.add_stroke(stroke(1.0));
+        s.add_stroke(stroke(2.0));
+        s.undo();
+        let before = s.document().strokes.clone();
+        s.begin_stroke(pen, Affine::IDENTITY, sample(0.0));
+        s.extend_stroke(&[sample(20.0), sample(40.0)], &[]);
+        command(&mut s);
+        assert!(!s.has_live_stroke(), "{name}: live stroke survived");
+        assert!(
+            s.end_stroke().is_none(),
+            "{name}: end_stroke committed a half-stroke"
+        );
+        let after = &s.document().strokes;
+        assert!(after.len() <= 2, "{name}: strokes {after:?}");
+        assert!(
+            after
+                .iter()
+                .all(|st| before.contains(st) || *st == stroke(2.0)),
+            "{name}: half-stroke leaked into {after:?}"
+        );
+    }
+}

@@ -1,4 +1,5 @@
-use crate::{Document, Stroke};
+use crate::capture::StrokeBuilder;
+use crate::{outline_stroke, Affine, Document, InputSample, LiveUpdate, PathData, Pen, Stroke};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionState {
@@ -20,6 +21,7 @@ pub struct Session {
     undo_stack: Vec<Edit>,
     redo_stack: Vec<Edit>,
     revision: u64,
+    live: Option<StrokeBuilder>,
 }
 
 impl Session {
@@ -29,6 +31,7 @@ impl Session {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             revision: 0,
+            live: None,
         }
     }
 
@@ -51,6 +54,7 @@ impl Session {
     }
 
     pub fn clear(&mut self) -> SessionState {
+        self.cancel_stroke();
         if self.document.strokes.is_empty() {
             return self.state();
         }
@@ -59,6 +63,7 @@ impl Session {
     }
 
     pub fn undo(&mut self) -> SessionState {
+        self.cancel_stroke();
         let Some(edit) = self.undo_stack.pop() else {
             return self.state();
         };
@@ -73,6 +78,7 @@ impl Session {
     }
 
     pub fn redo(&mut self) -> SessionState {
+        self.cancel_stroke();
         let Some(edit) = self.redo_stack.pop() else {
             return self.state();
         };
@@ -85,10 +91,52 @@ impl Session {
     }
 
     pub fn replace_document(&mut self, document: Document) -> SessionState {
+        self.cancel_stroke();
         self.document = document;
         self.undo_stack.clear();
         self.redo_stack.clear();
         self.bump()
+    }
+
+    /// Starts a stroke, cancelling any stroke already live. `view_to_doc` must be a uniform
+    /// scale plus translation.
+    pub fn begin_stroke(
+        &mut self,
+        pen: Pen,
+        view_to_doc: Affine,
+        sample: InputSample,
+    ) -> LiveUpdate {
+        let mut builder = StrokeBuilder::begin(pen, view_to_doc, sample);
+        let update = builder.live_update(&[]);
+        self.live = Some(builder);
+        update
+    }
+
+    pub fn extend_stroke(
+        &mut self,
+        samples: &[InputSample],
+        predicted: &[InputSample],
+    ) -> LiveUpdate {
+        let Some(builder) = self.live.as_mut() else {
+            return LiveUpdate::default();
+        };
+        builder.extend(samples);
+        builder.live_update(predicted)
+    }
+
+    /// Commits the live stroke and returns its full outline.
+    pub fn end_stroke(&mut self) -> Option<(SessionState, PathData)> {
+        let stroke = self.live.take()?.finish();
+        let path = outline_stroke(&stroke);
+        Some((self.add_stroke(stroke), path))
+    }
+
+    pub fn cancel_stroke(&mut self) {
+        self.live = None;
+    }
+
+    pub fn has_live_stroke(&self) -> bool {
+        self.live.is_some()
     }
 
     fn record(&mut self, edit: Edit) -> SessionState {
