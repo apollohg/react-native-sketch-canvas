@@ -207,3 +207,29 @@ fn background_markup_is_escaped_on_export() {
         .and_then(|n| n.attribute(("http://www.w3.org/1999/xlink", "href")));
     assert_eq!(href, Some("#r\""), "{svg}");
 }
+
+#[test]
+fn background_namespaces_survive_export() {
+    let background = r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="http://www.w3.org/2000/svg" xmlns:a0="urn:other" viewBox="0 0 10 10"><g s:class="k"><a0:meta/></g></svg>"#;
+    let svg = export_svg(
+        &doc(r#"{"version":1,"width":10,"height":10,"strokes":[]}"#),
+        Some(background),
+    )
+    .expect("export");
+    let xml =
+        resvg::usvg::roxmltree::Document::parse(&svg).unwrap_or_else(|e| panic!("{e}\n{svg}"));
+    let meta = xml
+        .descendants()
+        .find(|n| n.tag_name().name() == "meta")
+        .unwrap_or_else(|| panic!("{svg}"));
+    assert_eq!(meta.tag_name().namespace(), Some("urn:other"), "{svg}");
+    let group = xml
+        .descendants()
+        .find(|n| n.has_tag_name("g"))
+        .unwrap_or_else(|| panic!("{svg}"));
+    assert_eq!(
+        group.attribute(("http://www.w3.org/2000/svg", "class")),
+        Some("k"),
+        "{svg}"
+    );
+}

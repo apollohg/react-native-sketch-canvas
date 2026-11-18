@@ -102,7 +102,7 @@ fn write_element(
         }
     }
     out.push_str(fitted);
-    for (index, attribute) in node.attributes().enumerate() {
+    for attribute in node.attributes() {
         let replaced = is_root
             && attribute.namespace().is_none()
             && REPLACED_BACKGROUND_ATTRIBUTES.contains(&attribute.name());
@@ -110,14 +110,11 @@ fn write_element(
             continue;
         }
         let name = match attribute.namespace() {
-            Some(uri) => match node.lookup_prefix(uri).filter(|prefix| !prefix.is_empty()) {
-                Some(prefix) => format!("{prefix}:{}", attribute.name()),
-                None => {
-                    write_attribute(out, &format!("xmlns:a{index}"), uri);
-                    format!("a{index}:{}", attribute.name())
-                }
-            },
             None => attribute.name().to_string(),
+            Some(uri) => match attribute_prefix(node, uri) {
+                Some(prefix) => format!("{prefix}:{}", attribute.name()),
+                None => continue,
+            },
         };
         write_attribute(out, &name, attribute.value());
     }
@@ -134,6 +131,16 @@ fn write_element(
         }
     }
     let _ = write!(out, "</{tag}>");
+}
+
+/// A namespaced attribute needs a named prefix; well-formed XML always has one in scope.
+fn attribute_prefix<'a>(node: roxmltree::Node<'a, 'a>, uri: &str) -> Option<&'a str> {
+    if uri == roxmltree::NS_XML_URI {
+        return Some("xml");
+    }
+    node.namespaces()
+        .find(|ns| ns.uri() == uri && ns.name().is_some())
+        .and_then(|ns| ns.name())
 }
 
 fn qualified_name(node: roxmltree::Node, namespace: Option<&str>, name: &str) -> String {
