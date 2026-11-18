@@ -11,6 +11,10 @@ use crate::draw_ops::{
 };
 use crate::{Affine, BackgroundError, Color, DrawOp, PathData};
 
+/// Bounds the work and memory any background can cause, since `<use>` multiplies content.
+const MAX_OPS: usize = 50_000;
+const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackgroundWarning {
     UnsupportedText,
@@ -53,9 +57,18 @@ pub fn parse_background(svg: &str) -> Result<Background, BackgroundError> {
 
     let mut flattener = Flattener {
         ops: Vec::new(),
+        image_bytes: 0,
+        over_limit: false,
         warnings: warnings.into_inner().unwrap_or_default(),
     };
     flattener.group(tree.root(), Affine::IDENTITY);
+    if flattener.over_limit {
+        return Err(BackgroundError::Invalid {
+            message: format!(
+                "background exceeds {MAX_OPS} draw ops or {MAX_IMAGE_BYTES} bytes of images"
+            ),
+        });
+    }
     let size = tree.size();
     Ok(Background {
         width: f64::from(size.width()),
@@ -90,11 +103,26 @@ fn scan_for_text(data: &[u8], warnings: &Mutex<BTreeSet<BackgroundWarning>>) {
 
 struct Flattener {
     ops: Vec<DrawOp>,
+    image_bytes: usize,
+    over_limit: bool,
     warnings: BTreeSet<BackgroundWarning>,
 }
 
 impl Flattener {
+    fn emit(&mut self, op: DrawOp) {
+        if let DrawOp::Image { data, .. } = &op {
+            self.image_bytes += data.len();
+        }
+        self.over_limit |= self.ops.len() >= MAX_OPS || self.image_bytes > MAX_IMAGE_BYTES;
+        if !self.over_limit {
+            self.ops.push(op);
+        }
+    }
+
     fn group(&mut self, group: &usvg::Group, parent: Affine) {
+        if self.over_limit {
+            return;
+        }
         let transform = affine(group.transform()).then(&parent);
         if !group.filters().is_empty() {
             self.warnings.insert(BackgroundWarning::UnsupportedFilter);
@@ -107,7 +135,7 @@ impl Flattener {
             .map_or(0, |clip| self.push_clip(clip, transform));
         let layered = group.opacity().get() < 1.0;
         if layered {
-            self.ops.push(DrawOp::PushLayer {
+            self.emit(DrawOp::PushLayer {
                 opacity: group.opacity().get(),
             });
         }
@@ -115,9 +143,11 @@ impl Flattener {
             self.node(child, transform);
         }
         if layered {
-            self.ops.push(DrawOp::PopLayer);
+            self.emit(DrawOp::PopLayer);
         }
-        self.ops.extend(std::iter::repeat_n(DrawOp::PopClip, clips));
+        for _ in 0..clips {
+            self.emit(DrawOp::PopClip);
+        }
     }
 
     fn node(&mut self, node: &usvg::Node, transform: Affine) {
@@ -173,7 +203,9 @@ impl Flattener {
             usvg::PaintOrder::FillAndStroke => [fill, stroke],
             usvg::PaintOrder::StrokeAndFill => [stroke, fill],
         };
-        self.ops.extend(ordered.into_iter().flatten());
+        for op in ordered.into_iter().flatten() {
+            self.emit(op);
+        }
     }
 
     fn image(&mut self, image: &usvg::Image, transform: Affine) {
@@ -185,7 +217,7 @@ impl Flattener {
             usvg::ImageKind::WEBP(data) => (data, ImageFormat::Webp),
         };
         let size = image.size();
-        self.ops.push(DrawOp::Image {
+        self.emit(DrawOp::Image {
             data: data.to_vec(),
             format,
             x: 0.0,
@@ -208,7 +240,7 @@ impl Flattener {
         for (shape, _) in &shapes {
             path.append(shape);
         }
-        self.ops.push(DrawOp::PushClip {
+        self.emit(DrawOp::PushClip {
             path,
             rule,
             transform: affine(clip.transform()).then(&transform),

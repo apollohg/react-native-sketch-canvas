@@ -222,3 +222,64 @@ fn fit_transform_letterboxes() {
         Affine::scale_translate(0.5, 0.0, 25.0)
     );
 }
+
+/// Nests `<use>` ten-way `levels` deep, so the innermost element is drawn 10^levels times.
+fn repeated(inner: &str, levels: usize) -> String {
+    let mut defs = format!(r#"<g id="l0">{inner}</g>"#);
+    for level in 1..=levels {
+        let uses: String = (0..10)
+            .map(|_| format!(r##"<use href="#l{}"/>"##, level - 1))
+            .collect();
+        defs.push_str(&format!(r#"<g id="l{level}">{uses}</g>"#));
+    }
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs>{defs}</defs><use href="#l{levels}"/></svg>"##
+    )
+}
+
+#[test]
+fn repeated_paths_are_capped() {
+    let svg = repeated(r#"<rect width="1" height="1"/>"#, 5);
+    let result = parse_background(&svg);
+    assert!(
+        matches!(result, Err(BackgroundError::Invalid { .. })),
+        "100000 repeated paths parsed: {:?}",
+        result.map(|b| b.ops.len())
+    );
+}
+
+#[test]
+fn repeated_image_bytes_are_capped() {
+    let png = std::fs::read(fixtures_dir().join("backgrounds/large.png")).expect("large.png");
+    let encoded = base64_encode(&png);
+    let svg = repeated(
+        &format!(r#"<image width="1" height="1" href="data:image/png;base64,{encoded}"/>"#),
+        3,
+    );
+    let result = parse_background(&svg);
+    assert!(
+        matches!(result, Err(BackgroundError::Invalid { .. })),
+        "1000 copies of a {} byte image parsed: {:?}",
+        png.len(),
+        result.map(|b| b.ops.len())
+    );
+}
+
+fn base64_encode(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |acc, (i, &b)| acc | (u32::from(b) << (16 - 8 * i)));
+        for i in 0..4 {
+            out.push(if i <= chunk.len() {
+                TABLE[(n >> (18 - 6 * i)) as usize & 63] as char
+            } else {
+                '='
+            });
+        }
+    }
+    out
+}
