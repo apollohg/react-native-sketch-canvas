@@ -13,7 +13,7 @@ import {
 interface NativeSketchCanvasProps {
     ref?: Ref<SketchCanvasRef>;
     background?: string;
-    backgroundColor?: string;
+    canvasBackgroundColor?: string;
     penColor: string;
     penMinWidth: number;
     penMaxWidth: number;
@@ -34,7 +34,7 @@ const NOT_MOUNTED_MESSAGE = 'SketchCanvas is not mounted';
 
 export const SketchCanvas = forwardRef<SketchCanvasRef, SketchCanvasProps>((
     {
-        pen, editable = true, onChange, onStrokeStart, onStrokeEnd, onBackgroundLoad, onError, ...props
+        pen, backgroundColor, editable = true, onChange, onStrokeStart, onStrokeEnd, onBackgroundLoad, onError, ...props
     },
     ref,
 ) => {
@@ -64,6 +64,7 @@ export const SketchCanvas = forwardRef<SketchCanvasRef, SketchCanvasProps>((
         <NativeSketchCanvas
             {...props}
             ref={nativeRef}
+            canvasBackgroundColor={backgroundColor}
             penColor={pen.color}
             penMinWidth={pen.minWidth}
             penMaxWidth={pen.maxWidth}

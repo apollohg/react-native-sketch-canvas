@@ -41,6 +41,13 @@ describe('SketchCanvas', () => {
         expect(mockNativeProps.current).toMatchObject({ penColor: '#000000', penMinWidth: 1, penMaxWidth: 3 });
     });
 
+    it('renames backgroundColor so it cannot collide with the style prop', () => {
+        render(<SketchCanvas pen={PEN} backgroundColor={'#FFFFFF'} />);
+
+        expect(mockNativeProps.current.canvasBackgroundColor).toBe('#FFFFFF');
+        expect(mockNativeProps.current).not.toHaveProperty('backgroundColor');
+    });
+
     it('defaults editable to true', () => {
         render(<SketchCanvas pen={PEN} />);
 
