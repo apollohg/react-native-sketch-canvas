@@ -300,3 +300,20 @@ fn repeated_path_geometry_is_capped() {
         result.map(|b| b.ops.len())
     );
 }
+
+#[test]
+fn huge_image_dimensions_are_capped() {
+    let png = std::fs::read(fixtures_dir().join("backgrounds/huge-dimensions.png"))
+        .expect("huge-dimensions.png");
+    let svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image width="10" height="10" href="data:image/png;base64,{}"/></svg>"#,
+        base64_encode(&png)
+    );
+    let result = parse_background(&svg);
+    assert!(
+        matches!(result, Err(BackgroundError::Invalid { .. })),
+        "a {} byte PNG declaring 20000×20000 pixels parsed: {:?}",
+        png.len(),
+        result.map(|b| b.ops.len())
+    );
+}

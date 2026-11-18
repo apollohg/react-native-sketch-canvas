@@ -15,6 +15,9 @@ use crate::{Affine, BackgroundError, Color, DrawOp, PathData};
 const MAX_OPS: usize = 50_000;
 const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PATH_COORDS: usize = 4_000_000;
+/// Decoded size of every raster image together, from each image's header, so a small file that
+/// declares huge dimensions cannot exhaust memory when the native side decodes it.
+const MAX_IMAGE_PIXELS: usize = 32 * 1024 * 1024;
 
 #[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -109,6 +112,7 @@ struct Budget {
     ops: usize,
     path_coords: usize,
     image_bytes: usize,
+    image_pixels: usize,
 }
 
 struct Flattener {
@@ -120,18 +124,26 @@ struct Flattener {
 
 impl Flattener {
     /// Counts work before it is allocated; false once any limit is passed.
-    fn reserve(&mut self, ops: usize, path_coords: usize, image_bytes: usize) -> bool {
+    fn reserve(
+        &mut self,
+        ops: usize,
+        path_coords: usize,
+        image_bytes: usize,
+        image_pixels: usize,
+    ) -> bool {
         self.budget.ops += ops;
         self.budget.path_coords += path_coords;
         self.budget.image_bytes += image_bytes;
+        self.budget.image_pixels = self.budget.image_pixels.saturating_add(image_pixels);
         self.over_limit |= self.budget.ops > MAX_OPS
             || self.budget.path_coords > MAX_PATH_COORDS
-            || self.budget.image_bytes > MAX_IMAGE_BYTES;
+            || self.budget.image_bytes > MAX_IMAGE_BYTES
+            || self.budget.image_pixels > MAX_IMAGE_PIXELS;
         !self.over_limit
     }
 
     fn emit(&mut self, op: DrawOp) {
-        if self.reserve(1, 0, 0) {
+        if self.reserve(1, 0, 0, 0) {
             self.ops.push(op);
         }
     }
@@ -181,7 +193,7 @@ impl Flattener {
 
     fn path(&mut self, path: &usvg::Path, transform: Affine) {
         let painted = usize::from(path.fill().is_some()) + usize::from(path.stroke().is_some());
-        if !self.reserve(painted, painted * path.data().points().len() * 2, 0) {
+        if !self.reserve(painted, painted * path.data().points().len() * 2, 0, 0) {
             return;
         }
         let data = path_data(path.data());
@@ -235,10 +247,11 @@ impl Flattener {
             usvg::ImageKind::GIF(data) => (data, ImageFormat::Gif),
             usvg::ImageKind::WEBP(data) => (data, ImageFormat::Webp),
         };
-        if !self.reserve(1, 0, data.len()) {
+        let size = image.size();
+        let pixels = (size.width().ceil() as usize).saturating_mul(size.height().ceil() as usize);
+        if !self.reserve(1, 0, data.len(), pixels) {
             return;
         }
-        let size = image.size();
         self.ops.push(DrawOp::Image {
             data: data.to_vec(),
             format,
@@ -265,7 +278,7 @@ impl Flattener {
         for (shape, _) in &shapes {
             path.append(shape);
         }
-        if !self.reserve(1, path.coords.len(), 0) {
+        if !self.reserve(1, path.coords.len(), 0, 0) {
             return 0;
         }
         self.ops.push(DrawOp::PushClip {
