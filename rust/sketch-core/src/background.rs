@@ -1,8 +1,8 @@
 //! Flattens an SVG background into draw ops with `usvg`. Only `data:` image hrefs are read.
 
-use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use usvg::roxmltree;
 use usvg::tiny_skia_path::PathSegment;
@@ -19,8 +19,11 @@ const MAX_PATH_COORDS: usize = 4_000_000;
 /// Decoded size of every raster image together, from each image's header, so a small file that
 /// declares huge dimensions cannot exhaust memory when the native side decodes it.
 const MAX_IMAGE_PIXELS: usize = 32 * 1024 * 1024;
-/// `usvg` parses a fresh tree for every `<use>` of a nested SVG image, so their nodes share one budget.
+/// `usvg` resolves a nested SVG image again for every `<use>` of it, so each distinct one is
+/// parsed once and cached, every use shares one node budget, and distinct parses are capped
+/// because one may cost up to `usvg`'s own element limit whatever it outputs.
 const MAX_NESTED_SVG_NODES: usize = 100_000;
+const MAX_NESTED_SVG_PARSES: usize = 16;
 /// The data URL types `usvg` tries to parse as a nested SVG.
 const SVG_MIME: &str = "image/svg+xml";
 const UNTYPED_MIME: &str = "text/plain";
@@ -46,26 +49,19 @@ pub struct Background {
 
 pub fn parse_background(svg: &str) -> Result<Background, BackgroundError> {
     let warnings = Mutex::new(BTreeSet::new());
-    let nested_nodes = AtomicUsize::new(0);
+    let nested = NestedSvgs::default();
     let default_data = usvg::ImageHrefResolver::default_data_resolver();
     let options = usvg::Options {
         resources_dir: None,
         image_href_resolver: usvg::ImageHrefResolver {
             resolve_data: Box::new(|mime, data, options| {
-                if nested_nodes.load(Ordering::Relaxed) > MAX_NESTED_SVG_NODES {
-                    return None;
+                if !matches!(mime, SVG_MIME | UNTYPED_MIME) {
+                    return default_data(mime, data, options);
                 }
-                scan_for_text(&data, &warnings);
-                let parses_svg = matches!(mime, SVG_MIME | UNTYPED_MIME);
-                let kind = default_data(mime, data, options);
-                let cost = match &kind {
-                    Some(usvg::ImageKind::SVG(tree)) => node_count(tree.root()),
-                    // A failed parse may have expanded up to usvg's own element limit.
-                    None if parses_svg => MAX_NESTED_SVG_NODES + 1,
-                    _ => 0,
-                };
-                nested_nodes.fetch_add(cost, Ordering::Relaxed);
-                kind
+                nested.resolve(mime, data, |data| {
+                    scan_for_text(&data, &warnings);
+                    default_data(mime, data, options)
+                })
             }),
             resolve_string: Box::new(|_, _| {
                 record(&warnings, BackgroundWarning::UnsupportedExternalImage);
@@ -78,10 +74,10 @@ pub fn parse_background(svg: &str) -> Result<Background, BackgroundError> {
         message: e.to_string(),
     })?;
     drop(options);
-    if nested_nodes.into_inner() > MAX_NESTED_SVG_NODES {
+    if nested.over_limit.into_inner() {
         return Err(BackgroundError::Invalid {
             message: format!(
-                "nested SVG images are invalid or exceed {MAX_NESTED_SVG_NODES} elements"
+                "nested SVG images exceed {MAX_NESTED_SVG_PARSES} distinct images or {MAX_NESTED_SVG_NODES} elements"
             ),
         });
     }
@@ -113,6 +109,58 @@ pub fn parse_background(svg: &str) -> Result<Background, BackgroundError> {
 fn record(warnings: &Mutex<BTreeSet<BackgroundWarning>>, warning: BackgroundWarning) {
     if let Ok(mut set) = warnings.lock() {
         set.insert(warning);
+    }
+}
+
+/// A data URL's MIME type and decoded bytes.
+type DataKey = (String, Arc<Vec<u8>>);
+
+#[derive(Default)]
+struct NestedSvgs {
+    parsed: Mutex<HashMap<DataKey, Option<usvg::ImageKind>>>,
+    nodes: AtomicUsize,
+    over_limit: AtomicBool,
+}
+
+impl NestedSvgs {
+    fn resolve(
+        &self,
+        mime: &str,
+        data: Arc<Vec<u8>>,
+        parse: impl FnOnce(Arc<Vec<u8>>) -> Option<usvg::ImageKind>,
+    ) -> Option<usvg::ImageKind> {
+        if self.over_limit.load(Ordering::Relaxed) {
+            return None;
+        }
+        let key = (mime.to_string(), data);
+        let cached = {
+            let parsed = self.parsed.lock().ok()?;
+            match parsed.get(&key) {
+                Some(kind) => Some(kind.clone()),
+                None if parsed.len() >= MAX_NESTED_SVG_PARSES => {
+                    self.over_limit.store(true, Ordering::Relaxed);
+                    return None;
+                }
+                None => None,
+            }
+        };
+        // Parsing re-enters this resolver for the nested SVG's own images, so the lock is released.
+        let kind = cached.unwrap_or_else(|| {
+            let kind = parse(Arc::clone(&key.1));
+            if let Ok(mut parsed) = self.parsed.lock() {
+                parsed.insert(key, kind.clone());
+            }
+            kind
+        });
+        if let Some(usvg::ImageKind::SVG(tree)) = &kind {
+            let added = node_count(tree.root());
+            let total = self.nodes.fetch_add(added, Ordering::Relaxed) + added;
+            if total > MAX_NESTED_SVG_NODES {
+                self.over_limit.store(true, Ordering::Relaxed);
+                return None;
+            }
+        }
+        kind
     }
 }
 

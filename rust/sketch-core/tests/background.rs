@@ -355,10 +355,42 @@ fn repeated_nested_svg_images_are_capped() {
 }
 
 #[test]
-fn repeated_oversized_nested_svg_images_are_capped() {
+fn repeated_unparseable_nested_svg_is_parsed_once() {
+    let svg = repeated_nested_svg(6, 2);
+    let started = std::time::Instant::now();
+    let result = parse_background(&svg);
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "100 uses of a nested SVG past usvg's element limit took {elapsed:?}: {:?}",
+        result.map(|b| b.ops.len())
+    );
+}
+
+/// A nested SVG whose expanded `<use>` content sits in a clip path, outside the drawn tree.
+fn clip_heavy_nested_svg(salt: usize) -> String {
+    let mut defs = format!(r#"<g id="c0"><g><desc>{salt}</desc></g></g>"#);
+    for level in 1..=4 {
+        let uses: String = (0..10)
+            .map(|_| format!(r##"<use href="#c{}"/>"##, level - 1))
+            .collect();
+        defs.push_str(&format!(r#"<g id="c{level}">{uses}</g>"#));
+    }
+    let inner = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><defs>{defs}<clipPath id="clip"><use href="#c4"/></clipPath></defs><rect width="10" height="10" clip-path="url(#clip)"/></svg>"##
+    );
+    format!(
+        r#"<image width="1" height="1" href="data:image/svg+xml;base64,{}"/>"#,
+        base64_encode(inner.as_bytes())
+    )
+}
+
+#[test]
+fn many_distinct_nested_svg_images_are_capped() {
+    let images: String = (0..20).map(clip_heavy_nested_svg).collect();
     assert_rejected_quickly(
-        &repeated_nested_svg(6, 2),
-        std::time::Duration::from_secs(20),
-        "100 copies of a nested SVG past usvg's element limit",
+        &repeated(&images, 1),
+        std::time::Duration::from_secs(5),
+        "200 uses of 20 distinct nested SVGs whose content hides in clip paths",
     );
 }

@@ -67,9 +67,8 @@ fn nested_background(svg: &str, width: &str, height: &str) -> Result<String, Bac
     );
     let sized = format!(r#" width="{bw}" height="{bh}""#);
     // The outer `<svg>` aspect-fits the background's size into the document, as the canvas does.
-    let mut out = format!(
-        r#"<svg x="0" y="0" width="{width}" height="{height}" viewBox="0 0 {bw} {bh}">"#
-    );
+    let mut out =
+        format!(r#"<svg x="0" y="0" width="{width}" height="{height}" viewBox="0 0 {bw} {bh}">"#);
     write_root(root, &sized, &mut out);
     out.push_str("</svg>");
     if out.len() > MAX_NESTED_BACKGROUND_BYTES {

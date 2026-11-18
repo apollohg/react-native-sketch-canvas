@@ -269,7 +269,13 @@ fn drawn_bounds(background: &str, doc_width: f64, doc_height: f64) -> (u32, u32,
     let edge = |values: Vec<f64>, max: bool| {
         let v = values
             .into_iter()
-            .fold(if max { f64::MIN } else { f64::MAX }, |a, b| if max { a.max(b) } else { a.min(b) });
+            .fold(if max { f64::MIN } else { f64::MAX }, |a, b| {
+                if max {
+                    a.max(b)
+                } else {
+                    a.min(b)
+                }
+            });
         v.round() as u32
     };
     (
