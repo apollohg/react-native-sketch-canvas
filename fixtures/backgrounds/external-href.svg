@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100">
+  <image x="0" y="0" width="10" height="10" href="../../fixtures/backgrounds/secret.png"/>
+  <image x="10" y="0" width="10" height="10" xlink:href="secret.png"/>
+  <image x="20" y="0" width="10" height="10" href="file:///etc/hosts"/>
+  <image x="30" y="0" width="10" height="10" href="https://example.com/image.png"/>
+  <path d="M10 50 H90 V90 H10 Z" fill="#000000"/>
+</svg>

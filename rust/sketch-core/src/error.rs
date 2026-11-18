@@ -15,3 +15,9 @@ pub enum DocumentError {
     #[error("stroke {stroke} point {point} has an invalid coordinate or width")]
     InvalidWidth { stroke: usize, point: usize },
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum BackgroundError {
+    #[error("invalid background svg: {message}")]
+    Invalid { message: String },
+}
