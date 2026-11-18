@@ -1,11 +1,13 @@
 use crate::{Affine, Color, PathData};
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GradientStop {
     pub offset: f32,
     pub color: Color,
 }
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Spread {
     Pad,
@@ -14,6 +16,7 @@ pub enum Spread {
 }
 
 /// Gradient coordinates are in the op's local space, mapped by `transform` first.
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Paint {
     Solid(Color),
@@ -38,12 +41,14 @@ pub enum Paint {
     },
 }
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FillRule {
     NonZero,
     EvenOdd,
 }
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineCap {
     Butt,
@@ -51,6 +56,7 @@ pub enum LineCap {
     Square,
 }
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineJoin {
     Miter,
@@ -58,6 +64,7 @@ pub enum LineJoin {
     Bevel,
 }
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct StrokeParams {
     pub width: f32,
@@ -68,6 +75,7 @@ pub struct StrokeParams {
     pub dash_offset: f32,
 }
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageFormat {
     Png,
@@ -77,6 +85,7 @@ pub enum ImageFormat {
 }
 
 /// One drawing instruction. `transform` maps the op's coordinates into the background's space.
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawOp {
     FillPath {

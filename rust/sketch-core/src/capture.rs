@@ -15,6 +15,7 @@ const SPEED_SMOOTHING: f64 = 0.25;
 const PRESSURE_SMOOTHING: f64 = 0.4;
 const MIN_PEN_WIDTH: f64 = 0.01;
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerKind {
     Touch,
@@ -22,6 +23,7 @@ pub enum PointerKind {
 }
 
 /// One pointer sample in view points.
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InputSample {
     pub x: f64,
@@ -32,6 +34,7 @@ pub struct InputSample {
 }
 
 /// Widths are in view points.
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pen {
     pub color: Color,
@@ -41,6 +44,7 @@ pub struct Pen {
 
 /// Outline geometry in document units. `settled` extends what earlier updates sent;
 /// `tail` replaces the previous tail.
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LiveUpdate {
     pub settled: PathData,

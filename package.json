@@ -8,7 +8,10 @@
         "access": "public"
     },
     "scripts": {
-        "test:rust": "./rust/toolchain-cargo.sh test --manifest-path rust/sketch-core/Cargo.toml --all-features",
-        "lint:rust": "cargo +1.95.0 fmt --manifest-path rust/sketch-core/Cargo.toml --check && cargo +1.95.0 clippy --manifest-path rust/sketch-core/Cargo.toml --all-targets --all-features -- -D warnings"
+        "build:rust": "bash rust/generate-bindings.sh && bash rust/build-ios.sh && bash rust/build-android.sh",
+        "build:rust:android": "bash rust/generate-bindings.sh && bash rust/build-android.sh",
+        "build:rust:ios": "bash rust/generate-bindings.sh && bash rust/build-ios.sh",
+        "lint:rust": "cargo +1.95.0 fmt --manifest-path rust/sketch-core/Cargo.toml --check && cargo +1.95.0 clippy --manifest-path rust/sketch-core/Cargo.toml --all-targets --all-features -- -D warnings",
+        "test:rust": "./rust/toolchain-cargo.sh test --manifest-path rust/sketch-core/Cargo.toml --features ffi"
     }
 }

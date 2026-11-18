@@ -15,6 +15,7 @@ const FLATTEN_TOLERANCE_PER_RADIUS: f64 = 0.02;
 const MIN_FLATTEN_TOLERANCE: f64 = 0.01;
 const MAX_FLATTEN_STEPS: usize = 64;
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PathData {
     pub verbs: Vec<u8>,

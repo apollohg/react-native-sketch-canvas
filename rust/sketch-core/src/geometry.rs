@@ -1,4 +1,5 @@
 /// 2D affine transform in SVG matrix order: `x' = a·x + c·y + e`, `y' = b·x + d·y + f`.
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Affine {
     pub a: f64,

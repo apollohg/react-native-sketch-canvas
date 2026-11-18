@@ -1,3 +1,4 @@
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color {
     pub r: u8,

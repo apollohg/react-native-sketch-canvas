@@ -1,3 +1,6 @@
+#[cfg(feature = "ffi")]
+uniffi::setup_scaffolding!();
+
 mod background;
 mod capture;
 mod color;
@@ -5,6 +8,8 @@ mod document;
 mod draw_ops;
 mod error;
 mod export_svg;
+#[cfg(feature = "ffi")]
+pub mod ffi;
 mod fit;
 mod geometry;
 mod outline;

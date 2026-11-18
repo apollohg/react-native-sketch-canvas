@@ -1,6 +1,7 @@
 use crate::capture::StrokeBuilder;
 use crate::{outline_stroke, Affine, Document, InputSample, LiveUpdate, PathData, Pen, Stroke};
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionState {
     pub stroke_count: u32,

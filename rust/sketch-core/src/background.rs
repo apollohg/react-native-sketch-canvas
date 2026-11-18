@@ -16,6 +16,7 @@ const MAX_OPS: usize = 50_000;
 const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PATH_COORDS: usize = 4_000_000;
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BackgroundWarning {
     UnsupportedText,
@@ -25,6 +26,7 @@ pub enum BackgroundWarning {
     UnsupportedExternalImage,
 }
 
+#[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Background {
     pub width: f64,
