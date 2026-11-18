@@ -2,7 +2,7 @@
 //! part of the document format: changing them only affects strokes drawn afterwards.
 
 use crate::outline::{live_tail, pieces_between, StableCentreLine};
-use crate::{outline_tail, Affine, Color, PathData, Point, Stroke};
+use crate::{outline_tail, Affine, Color, PathData, Point, Stroke, MAX_COORDINATE};
 
 /// A live update's tail never exceeds this many verbs; a longer one is a bug.
 pub const TAIL_MAX_VERBS: usize = 512;
@@ -205,9 +205,9 @@ impl StrokeBuilder {
     fn to_document(&self, sample: InputSample, view_width: f64) -> Point {
         let (x, y) = self.view_to_doc.apply(sample.x, sample.y);
         Point {
-            x,
-            y,
-            w: view_width / self.scale,
+            x: x.clamp(-MAX_COORDINATE, MAX_COORDINATE),
+            y: y.clamp(-MAX_COORDINATE, MAX_COORDINATE),
+            w: (view_width / self.scale).min(MAX_COORDINATE),
         }
     }
 }

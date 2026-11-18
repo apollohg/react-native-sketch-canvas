@@ -65,23 +65,75 @@ pub fn centre_line(points: &[Point]) -> Vec<Point> {
 
 /// Returns S plus the number of leading samples that appending further points can never change.
 fn centre_line_with_stable_len(points: &[Point]) -> (Vec<Point>, usize) {
+    let mut samples = Vec::new();
+    let stable_len = build_centre_line(points, &mut samples);
+    (samples, stable_len)
+}
+
+/// The number of samples in a stroke's centre line, without building it.
+pub(crate) fn centre_line_len(points: &[Point]) -> usize {
+    let mut count = SampleCount::default();
+    build_centre_line(points, &mut count);
+    count.len
+}
+
+/// Where centre line samples go; only the last one is needed to drop duplicates.
+trait Samples {
+    fn last(&self) -> Option<Point>;
+    fn add(&mut self, sample: Point);
+    fn len(&self) -> usize;
+}
+
+impl Samples for Vec<Point> {
+    fn last(&self) -> Option<Point> {
+        self.as_slice().last().copied()
+    }
+    fn add(&mut self, sample: Point) {
+        self.push(sample);
+    }
+    fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+}
+
+#[derive(Default)]
+struct SampleCount {
+    last: Option<Point>,
+    len: usize,
+}
+
+impl Samples for SampleCount {
+    fn last(&self) -> Option<Point> {
+        self.last
+    }
+    fn add(&mut self, sample: Point) {
+        self.last = Some(sample);
+        self.len += 1;
+    }
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+/// Builds S into `samples`; returns how many leading samples are stable.
+fn build_centre_line(points: &[Point], samples: &mut impl Samples) -> usize {
     let Some(&last) = points.last() else {
-        return (Vec::new(), 0);
+        return 0;
     };
     if points.len() < 3 {
-        let mut samples = Vec::new();
         for &p in points {
-            push_sample(&mut samples, p);
+            push_sample(samples, p);
         }
-        let stable_len = samples.len().min(1);
-        return (samples, stable_len);
+        return samples.len().min(1);
     }
-    let mut line = StableCentreLine::default();
-    line.extend(points);
-    let mut samples = line.samples;
+    push_sample(samples, points[0]);
+    push_sample(samples, midpoint(points[0], points[1]));
+    for window in points.windows(3) {
+        push_quadratic(samples, window);
+    }
     let stable_len = samples.len();
-    push_sample(&mut samples, last);
-    (samples, stable_len)
+    push_sample(samples, last);
+    stable_len
 }
 
 /// The samples of S that appending points can never change, built as a stroke grows.
@@ -112,7 +164,7 @@ impl StableCentreLine {
     }
 }
 
-fn push_quadratic(samples: &mut Vec<Point>, window: &[Point]) {
+fn push_quadratic(samples: &mut impl Samples, window: &[Point]) {
     let (start, control, end) = (
         midpoint(window[0], window[1]),
         window[1],
@@ -148,13 +200,13 @@ fn midpoint(a: Point, b: Point) -> Point {
     }
 }
 
-fn push_sample(samples: &mut Vec<Point>, p: Point) {
+fn push_sample(samples: &mut impl Samples, p: Point) {
     if let Some(last) = samples.last() {
         if (p.x - last.x).hypot(p.y - last.y) <= DUPLICATE_SAMPLE_DISTANCE {
             return;
         }
     }
-    samples.push(p);
+    samples.add(p);
 }
 
 /// The full outline of a stroke, filled with the non-zero rule.

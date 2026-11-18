@@ -6,7 +6,7 @@ pub enum DocumentError {
     Malformed { message: String },
     #[error("unsupported document version {found}")]
     UnsupportedVersion { found: u64 },
-    #[error("document width and height must be finite and positive")]
+    #[error("document width and height must be finite, positive and at most 1,000,000")]
     InvalidSize,
     #[error("stroke {stroke} has an invalid color")]
     InvalidColor { stroke: usize },
@@ -14,6 +14,8 @@ pub enum DocumentError {
     EmptyStroke { stroke: usize },
     #[error("stroke {stroke} point {point} has an invalid coordinate or width")]
     InvalidWidth { stroke: usize, point: usize },
+    #[error("document exceeds {limit} points or centre line samples")]
+    TooLarge { limit: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

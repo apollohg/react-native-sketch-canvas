@@ -31,14 +31,17 @@ A reader rejects the whole document, and changes nothing, when any of these hold
 
 - it is not a JSON object, or has a field other than the four above (strokes likewise accept only `color` and `points`);
 - `version` is not `1`;
-- `width` or `height` is not a finite number greater than zero;
+- `width` or `height` is not a finite number greater than zero and at most `1000000`;
 - a `color` is not `#` followed by exactly 6 or 8 hex digits;
 - a stroke has no points;
-- a point is not exactly three numbers, any of them is not finite, or `w` is not greater than zero.
+- a point is not exactly three numbers, any of them is not finite, `|x|` or `|y|` is greater than `1000000`, or `w` is not greater than zero and at most `1000000`;
+- the strokes together have more than `1000000` points, or more than `1000000` centre line samples (the samples `S` of step 1 of the outline algorithm, summed over every stroke).
+
+These limits bound the work any valid document can cause a renderer.
 
 ## Writing
 
-Writers emit numbers rounded to 2 decimal places with trailing zeros removed (`2.0` → `2`), widths no smaller than `0.01`, and colours in uppercase, as `#RRGGBB` when fully opaque and `#RRGGBBAA` otherwise.
+Writers emit numbers rounded to 2 decimal places with trailing zeros removed (`2.0` → `2`), widths no smaller than `0.01`, and colours in uppercase, as `#RRGGBB` when fully opaque and `#RRGGBBAA` otherwise. A writer never produces a document past the validation limits: this library clamps captured coordinates and widths to them and discards a stroke that would take the document past either total.
 
 ## Rendering
 
@@ -113,7 +116,7 @@ Appending points to a stroke only changes the samples after `m[n-2]`. A renderer
 
 ## Fitting into a box
 
-A document, or a background into a document, is drawn **aspect-fit and centred**: for content `cw × ch` in a box `bw × bh`,
+A document, or a background into a document, is drawn **aspect-fit and centred**. A background's size is its root `width` and `height` in user units, each defaulting to the matching `viewBox` dimension; within that size its content is placed by its own `viewBox` and `preserveAspectRatio`, as in any SVG renderer. For content `cw × ch` in a box `bw × bh`,
 
 ```text
 s  = min(bw / cw, bh / ch)

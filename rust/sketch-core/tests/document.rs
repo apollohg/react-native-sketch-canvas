@@ -141,3 +141,71 @@ fn accepts_points_outside_bounds() {
     let result = parse_document(&json);
     assert!(result.is_ok(), "input: {json}\nactual: {result:?}");
 }
+
+#[test]
+fn rejects_sizes_and_points_past_the_limits() {
+    expect_err(
+        r#"{"version":1,"width":1000001,"height":50,"strokes":[]}"#,
+        DocumentError::InvalidSize,
+    );
+    for point in [
+        "[1000001,2,3]",
+        "[1,-1000001,3]",
+        "[1,2,1000001]",
+        "[9e307,2,3]",
+    ] {
+        let json = doc_json(&format!(
+            r##"[{{"color":"#000000","points":[[1,2,3],{point}]}}]"##
+        ));
+        expect_err(
+            &json,
+            DocumentError::InvalidWidth {
+                stroke: 0,
+                point: 1,
+            },
+        );
+    }
+    let json = doc_json(r##"[{"color":"#000000","points":[[1000000,-1000000,1000000]]}]"##);
+    assert!(parse_document(&json).is_ok(), "input: {json}");
+}
+
+/// Points 200 units apart in a zigzag of hairline width: every quadratic flattens into 64 steps.
+fn hairline_zigzag(count: usize) -> String {
+    let points: Vec<String> = (0..count)
+        .map(|i| format!("[{},{},0.01]", (i % 2) * 200, i))
+        .collect();
+    doc_json(&format!(
+        r##"[{{"color":"#000000","points":[{}]}}]"##,
+        points.join(",")
+    ))
+}
+
+#[test]
+fn rejects_documents_past_the_sample_limit() {
+    let within = hairline_zigzag(15_000);
+    assert!(
+        parse_document(&within).is_ok(),
+        "15,000 hairline zigzag points (about 960,000 samples) rejected"
+    );
+    let past = hairline_zigzag(16_000);
+    let result = parse_document(&past);
+    assert!(
+        matches!(result, Err(DocumentError::TooLarge { .. })),
+        "16,000 hairline zigzag points (about 1,024,000 samples) gave {:?}",
+        result.map(|doc| doc.strokes[0].points.len())
+    );
+}
+
+#[test]
+fn rejects_documents_past_the_point_limit() {
+    let json = doc_json(&format!(
+        r##"[{{"color":"#000000","points":[{}]}}]"##,
+        vec!["[1,1,1]"; 1_000_001].join(",")
+    ));
+    let result = parse_document(&json);
+    assert!(
+        matches!(result, Err(DocumentError::TooLarge { .. })),
+        "1,000,001 identical points gave {:?}",
+        result.map(|doc| doc.strokes[0].points.len())
+    );
+}

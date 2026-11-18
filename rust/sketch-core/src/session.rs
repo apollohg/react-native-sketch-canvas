@@ -1,5 +1,9 @@
 use crate::capture::StrokeBuilder;
-use crate::{outline_stroke, Affine, Document, InputSample, LiveUpdate, PathData, Pen, Stroke};
+use crate::document::stroke_size;
+use crate::{
+    outline_stroke, Affine, Document, InputSample, LiveUpdate, PathData, Pen, Stroke,
+    MAX_DOCUMENT_SAMPLES,
+};
 
 #[cfg_attr(feature = "ffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,11 +27,14 @@ pub struct Session {
     redo_stack: Vec<Edit>,
     revision: u64,
     live: Option<StrokeBuilder>,
+    /// The document's strokes measured by `stroke_size`, kept within the format's limits.
+    size: usize,
 }
 
 impl Session {
     pub fn new(document: Document) -> Session {
         Session {
+            size: document_size(&document.strokes),
             document,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -49,9 +56,16 @@ impl Session {
         }
     }
 
-    pub fn add_stroke(&mut self, stroke: Stroke) -> SessionState {
+    /// Adds a stroke; `None`, with nothing changed, when it would take the document past the
+    /// format's point or sample limit.
+    pub fn add_stroke(&mut self, stroke: Stroke) -> Option<SessionState> {
+        let size = self.size + stroke_size(&stroke);
+        if size > MAX_DOCUMENT_SAMPLES {
+            return None;
+        }
+        self.size = size;
         self.document.strokes.push(stroke.clone());
-        self.record(Edit::AddStroke(stroke))
+        Some(self.record(Edit::AddStroke(stroke)))
     }
 
     pub fn clear(&mut self) -> SessionState {
@@ -60,6 +74,7 @@ impl Session {
             return self.state();
         }
         let removed = std::mem::take(&mut self.document.strokes);
+        self.size = 0;
         self.record(Edit::Clear(removed))
     }
 
@@ -69,10 +84,14 @@ impl Session {
             return self.state();
         };
         match &edit {
-            Edit::AddStroke(_) => {
+            Edit::AddStroke(stroke) => {
                 self.document.strokes.pop();
+                self.size -= stroke_size(stroke);
             }
-            Edit::Clear(removed) => self.document.strokes = removed.clone(),
+            Edit::Clear(removed) => {
+                self.document.strokes = removed.clone();
+                self.size = document_size(removed);
+            }
         }
         self.redo_stack.push(edit);
         self.bump()
@@ -84,8 +103,14 @@ impl Session {
             return self.state();
         };
         match &edit {
-            Edit::AddStroke(stroke) => self.document.strokes.push(stroke.clone()),
-            Edit::Clear(_) => self.document.strokes.clear(),
+            Edit::AddStroke(stroke) => {
+                self.document.strokes.push(stroke.clone());
+                self.size += stroke_size(stroke);
+            }
+            Edit::Clear(_) => {
+                self.document.strokes.clear();
+                self.size = 0;
+            }
         }
         self.undo_stack.push(edit);
         self.bump()
@@ -93,6 +118,7 @@ impl Session {
 
     pub fn replace_document(&mut self, document: Document) -> SessionState {
         self.cancel_stroke();
+        self.size = document_size(&document.strokes);
         self.document = document;
         self.undo_stack.clear();
         self.redo_stack.clear();
@@ -125,11 +151,12 @@ impl Session {
         builder.live_update(predicted)
     }
 
-    /// Commits the live stroke and returns its full outline.
+    /// Commits the live stroke and returns its full outline; `None` when there is no live
+    /// stroke or it would take the document past the format's limits.
     pub fn end_stroke(&mut self) -> Option<(SessionState, PathData)> {
         let stroke = self.live.take()?.finish();
         let path = outline_stroke(&stroke);
-        Some((self.add_stroke(stroke), path))
+        Some((self.add_stroke(stroke)?, path))
     }
 
     pub fn cancel_stroke(&mut self) {
@@ -150,4 +177,8 @@ impl Session {
         self.revision += 1;
         self.state()
     }
+}
+
+fn document_size(strokes: &[Stroke]) -> usize {
+    strokes.iter().map(stroke_size).sum()
 }

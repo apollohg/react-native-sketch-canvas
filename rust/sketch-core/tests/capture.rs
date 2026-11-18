@@ -405,3 +405,55 @@ fn live_update_cost_does_not_grow_with_stroke_length() {
         "median update took {early:?} near the start and {late:?} after {LONG_STROKE} samples"
     );
 }
+
+#[test]
+fn stroke_past_the_document_limit_is_not_committed() {
+    let points: Vec<Point> = (0..15_600)
+        .map(|i| Point {
+            x: ((i % 2) * 200) as f64,
+            y: i as f64,
+            w: 0.01,
+        })
+        .collect();
+    let mut document = Document::new(1000.0, 1000.0).expect("valid size");
+    document.strokes.push(Stroke {
+        color: pen(1.0, 1.0).color,
+        points,
+    });
+    let mut s = Session::new(document);
+    let zigzag: Vec<InputSample> = (0..40)
+        .map(|i| touch(((i % 2) * 200) as f64, i as f64 * 3.0, i as f64 * FRAME_MS))
+        .collect();
+    s.begin_stroke(pen(0.01, 0.01), Affine::IDENTITY, zigzag[0]);
+    s.extend_stroke(&zigzag[1..], &[]);
+    let committed = s.end_stroke();
+    assert!(
+        committed.is_none(),
+        "a stroke taking the document past the sample limit was committed: {:?}",
+        committed.map(|(state, _)| state)
+    );
+    assert_eq!(s.state().stroke_count, 1, "{:?}", s.state());
+    let json = sketch_core::serialize_document(s.document());
+    assert!(
+        sketch_core::parse_document(&json).is_ok(),
+        "saved document does not reload"
+    );
+}
+
+#[test]
+fn captured_points_stay_within_the_format_limits() {
+    let mut s = session();
+    let stroke = draw(
+        &mut s,
+        pen(1e12, 1e12),
+        Affine::scale_translate(1e4, 0.0, 0.0),
+        &horizontal(5, 2e3),
+    );
+    let json = sketch_core::serialize_document(s.document());
+    let reloaded = sketch_core::parse_document(&json);
+    assert!(
+        reloaded.is_ok(),
+        "captured stroke {:?} saved as a document that does not reload: {reloaded:?}",
+        stroke.points
+    );
+}

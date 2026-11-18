@@ -20,7 +20,9 @@ fn session() -> Session {
 fn add_then_undo_redo() {
     let mut s = session();
     s.add_stroke(stroke(1.0));
-    let state = s.add_stroke(stroke(2.0));
+    let state = s
+        .add_stroke(stroke(2.0))
+        .expect("within the document limits");
     assert_eq!(state.stroke_count, 2, "{state:?}");
     let state = s.undo();
     assert!(state.stroke_count == 1 && state.can_redo, "{state:?}");
@@ -33,7 +35,9 @@ fn add_after_undo_drops_redo() {
     let mut s = session();
     s.add_stroke(stroke(1.0));
     s.undo();
-    let state = s.add_stroke(stroke(2.0));
+    let state = s
+        .add_stroke(stroke(2.0))
+        .expect("within the document limits");
     assert!(!state.can_redo, "{state:?}");
     assert_eq!(s.document().strokes, vec![stroke(2.0)]);
 }

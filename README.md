@@ -83,7 +83,7 @@ Save with `await canvas.current.getDocument()` and restore with `initialDocument
 A document has its own coordinate space, fixed when it is created:
 
 - from `initialDocument` or `loadDocument`, the document's own `width` and `height`;
-- otherwise, with a `background`, the SVG's size; input is ignored until the SVG has parsed;
+- otherwise, with a `background`, the SVG's `width` and `height` (its `viewBox` size when they are absent); input is ignored until the SVG has parsed;
 - otherwise, the view's size in points at first layout.
 
 The document is drawn aspect-fit and centred in the view, and a background is aspect-fit and centred into the document. Resizing the view rescales the drawing without changing stored points. A resize or rotation during a stroke cancels that stroke.
@@ -101,6 +101,8 @@ The document is drawn aspect-fit and centred in the view, and a background is as
 ```
 
 Points are `[x, y, width]` in document units. The way points become outlines is fixed for each format version and documented, with a conformance suite, in [FORMAT.md](FORMAT.md). A document never stores its background; record which background it was drawn on in your own data.
+
+A document holds at most 1,000,000 points and 1,000,000 outline samples, with coordinates and widths within ±1,000,000. A stroke that would take the canvas past a limit is discarded as if cancelled.
 
 ## SVG background support
 
@@ -120,7 +122,7 @@ Other limits:
 
 - On iOS, gradients with `spreadMethod="reflect"` or `"repeat"` draw as `pad`.
 - On Android before API 29, radial gradients ignore their focal point.
-- A background is rejected with `invalidBackground` if it flattens to more than 50,000 drawing operations, 4 million path coordinates, 32 MB of embedded images or 32 megapixels of decoded images.
+- A background is rejected with `invalidBackground` if it flattens to more than 50,000 drawing operations, 4 million path coordinates, 32 MB of embedded images or 32 megapixels of decoded images, or embeds more than 16 different SVG images or 100,000 elements of them.
 
 ## Release builds
 

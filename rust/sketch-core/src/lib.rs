@@ -18,7 +18,10 @@ mod session;
 pub use background::{parse_background, Background, BackgroundWarning};
 pub use capture::{InputSample, LiveUpdate, Pen, PointerKind, TAIL_MAX_VERBS};
 pub use color::Color;
-pub use document::{parse_document, serialize_document, Document, Point, Stroke, FORMAT_VERSION};
+pub use document::{
+    parse_document, serialize_document, Document, Point, Stroke, FORMAT_VERSION, MAX_COORDINATE,
+    MAX_DOCUMENT_POINTS, MAX_DOCUMENT_SAMPLES,
+};
 pub use draw_ops::{
     DrawOp, FillRule, GradientStop, ImageFormat, LineCap, LineJoin, Paint, Spread, StrokeParams,
 };

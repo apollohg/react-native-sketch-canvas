@@ -1,9 +1,15 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::outline::centre_line_len;
 use crate::{Color, DocumentError};
 
 pub const FORMAT_VERSION: u64 = 1;
+
+/// Version 1 bounds, part of the format, so any valid document has bounded outlines and exports.
+pub const MAX_COORDINATE: f64 = 1_000_000.0;
+pub const MAX_DOCUMENT_POINTS: usize = 1_000_000;
+pub const MAX_DOCUMENT_SAMPLES: usize = 1_000_000;
 
 const STORED_DECIMALS_SCALE: f64 = 100.0;
 const MIN_STORED_WIDTH: f64 = 1.0 / STORED_DECIMALS_SCALE;
@@ -63,7 +69,21 @@ fn malformed(error: impl ToString) -> DocumentError {
 }
 
 fn is_valid_size(value: f64) -> bool {
-    value.is_finite() && value > 0.0
+    value.is_finite() && value > 0.0 && value <= MAX_COORDINATE
+}
+
+fn is_valid_point(x: f64, y: f64, w: f64) -> bool {
+    x.is_finite()
+        && y.is_finite()
+        && x.abs() <= MAX_COORDINATE
+        && y.abs() <= MAX_COORDINATE
+        && is_valid_size(w)
+}
+
+/// What a stroke adds against both document limits; a document whose strokes total at most
+/// the limit is within both.
+pub(crate) fn stroke_size(stroke: &Stroke) -> usize {
+    stroke.points.len().max(centre_line_len(&stroke.points))
 }
 
 pub fn parse_document(json: &str) -> Result<Document, DocumentError> {
@@ -81,6 +101,13 @@ pub fn parse_document(json: &str) -> Result<Document, DocumentError> {
     }
     let wire: WireDocument = serde_json::from_value(value).map_err(malformed)?;
     let mut document = Document::new(wire.width, wire.height)?;
+    let total_points: usize = wire.strokes.iter().map(|s| s.points.len()).sum();
+    if total_points > MAX_DOCUMENT_POINTS {
+        return Err(DocumentError::TooLarge {
+            limit: MAX_DOCUMENT_POINTS,
+        });
+    }
+    let mut total_samples = 0;
     for (stroke_index, wire_stroke) in wire.strokes.into_iter().enumerate() {
         let color = Color::parse(&wire_stroke.color).ok_or(DocumentError::InvalidColor {
             stroke: stroke_index,
@@ -95,7 +122,7 @@ pub fn parse_document(json: &str) -> Result<Document, DocumentError> {
             .into_iter()
             .enumerate()
             .map(|(point_index, [x, y, w])| {
-                if x.is_finite() && y.is_finite() && w.is_finite() && w > 0.0 {
+                if is_valid_point(x, y, w) {
                     Ok(Point { x, y, w })
                 } else {
                     Err(DocumentError::InvalidWidth {
@@ -105,6 +132,12 @@ pub fn parse_document(json: &str) -> Result<Document, DocumentError> {
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
+        total_samples += centre_line_len(&points);
+        if total_samples > MAX_DOCUMENT_SAMPLES {
+            return Err(DocumentError::TooLarge {
+                limit: MAX_DOCUMENT_SAMPLES,
+            });
+        }
         document.strokes.push(Stroke { color, points });
     }
     Ok(document)
