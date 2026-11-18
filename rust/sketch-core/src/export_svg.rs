@@ -13,22 +13,17 @@ use crate::{
 const REPLACED_BACKGROUND_ATTRIBUTES: [&str; 5] =
     ["x", "y", "width", "height", "preserveAspectRatio"];
 
+/// Exported background markup beyond this is rejected; entity expansion can amplify input.
+const MAX_NESTED_BACKGROUND_BYTES: usize = 32 * 1024 * 1024;
+
 /// A standalone SVG of the document: strokes as filled outlines, over the optional background.
 pub fn export_svg(doc: &Document, background: Option<&str>) -> Result<String, BackgroundError> {
     let (width, height) = (format_number(doc.width), format_number(doc.height));
-    let nested = background
-        .map(|svg| nested_background(svg, &width, &height))
-        .transpose()?;
-    let mut out = String::new();
-    if let Some(subset) = nested.as_ref().and_then(|n| n.dtd_subset) {
-        let _ = write!(out, "<!DOCTYPE svg [{subset}]>");
-    }
-    let _ = write!(
-        out,
+    let mut out = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">"#
     );
-    if let Some(nested) = nested {
-        out.push_str(&nested.element);
+    if let Some(svg) = background {
+        out.push_str(&nested_background(svg, &width, &height)?);
     }
     for stroke in &doc.strokes {
         let color = stroke.color;
@@ -55,25 +50,9 @@ pub fn export_svg(doc: &Document, background: Option<&str>) -> Result<String, Ba
     Ok(out)
 }
 
-struct NestedBackground<'a> {
-    /// Entity declarations the element may reference, from the DOCTYPE's `[…]` subset.
-    dtd_subset: Option<&'a str>,
-    element: String,
-}
-
-fn internal_dtd_subset(prolog: &str) -> Option<&str> {
-    let doctype = &prolog[prolog.find("<!DOCTYPE")?..];
-    let open = doctype.find('[')?;
-    let close = doctype.rfind(']').filter(|&close| close > open)?;
-    Some(&doctype[open + 1..close])
-}
-
-/// The background's root element only, with its position and size attributes rewritten.
-fn nested_background<'a>(
-    svg: &'a str,
-    width: &str,
-    height: &str,
-) -> Result<NestedBackground<'a>, BackgroundError> {
+/// Re-serialises the background's root element from the parsed tree, so entity references
+/// arrive expanded and no DTD, prolog or comment is carried over.
+fn nested_background(svg: &str, width: &str, height: &str) -> Result<String, BackgroundError> {
     let invalid = |message: String| BackgroundError::Invalid { message };
     let background = parse_background(svg)?;
     let options = roxmltree::ParsingOptions {
@@ -83,37 +62,106 @@ fn nested_background<'a>(
     let xml = roxmltree::Document::parse_with_options(svg, options)
         .map_err(|e| invalid(e.to_string()))?;
     let root = xml.root_element();
-    let element = root.range();
-    let name_end = svg[element.start + 1..element.end]
-        .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
-        .map_or(element.end, |offset| element.start + 1 + offset);
-
-    let mut nested = String::with_capacity(element.len() + 96);
-    nested.push_str(&svg[element.start..name_end]);
-    let _ = write!(nested, r#" x="0" y="0" width="{width}" height="{height}""#);
+    let mut fitted = format!(r#" x="0" y="0" width="{width}" height="{height}""#);
     if root.attribute("viewBox").is_none() {
         let _ = write!(
-            nested,
+            fitted,
             r#" viewBox="0 0 {} {}""#,
             format_number(background.width),
             format_number(background.height)
         );
     }
-    let mut cursor = name_end;
-    for attribute in root.attributes() {
-        if attribute.namespace().is_none()
-            && REPLACED_BACKGROUND_ATTRIBUTES.contains(&attribute.name())
-        {
-            let range = attribute.range();
-            nested.push_str(&svg[cursor..range.start]);
-            cursor = range.end;
+    let mut out = String::with_capacity(svg.len());
+    write_element(root, None, &fitted, &mut out);
+    if out.len() > MAX_NESTED_BACKGROUND_BYTES {
+        return Err(invalid(format!(
+            "background markup exceeds {MAX_NESTED_BACKGROUND_BYTES} bytes"
+        )));
+    }
+    Ok(out)
+}
+
+/// Writes an element; `fitted` attributes replace the root's own position and size.
+fn write_element(
+    node: roxmltree::Node,
+    parent: Option<roxmltree::Node>,
+    fitted: &str,
+    out: &mut String,
+) {
+    let is_root = parent.is_none();
+    let tag = qualified_name(node, node.tag_name().namespace(), node.tag_name().name());
+    let _ = write!(out, "<{tag}");
+    for namespace in node.namespaces() {
+        let inherited = parent.is_some_and(|p| p.namespaces().any(|ns| ns == namespace));
+        if inherited || namespace.uri() == roxmltree::NS_XML_URI {
+            continue;
+        }
+        match namespace.name() {
+            Some(prefix) => write_attribute(out, &format!("xmlns:{prefix}"), namespace.uri()),
+            None => write_attribute(out, "xmlns", namespace.uri()),
         }
     }
-    nested.push_str(&svg[cursor..element.end]);
-    Ok(NestedBackground {
-        dtd_subset: internal_dtd_subset(&svg[..element.start]),
-        element: nested,
-    })
+    out.push_str(fitted);
+    for (index, attribute) in node.attributes().enumerate() {
+        let replaced = is_root
+            && attribute.namespace().is_none()
+            && REPLACED_BACKGROUND_ATTRIBUTES.contains(&attribute.name());
+        if replaced {
+            continue;
+        }
+        let name = match attribute.namespace() {
+            Some(uri) => match node.lookup_prefix(uri).filter(|prefix| !prefix.is_empty()) {
+                Some(prefix) => format!("{prefix}:{}", attribute.name()),
+                None => {
+                    write_attribute(out, &format!("xmlns:a{index}"), uri);
+                    format!("a{index}:{}", attribute.name())
+                }
+            },
+            None => attribute.name().to_string(),
+        };
+        write_attribute(out, &name, attribute.value());
+    }
+    if !node.has_children() {
+        out.push_str("/>");
+        return;
+    }
+    out.push('>');
+    for child in node.children() {
+        if child.is_element() {
+            write_element(child, Some(node), "", out);
+        } else if let Some(text) = child.is_text().then(|| child.text()).flatten() {
+            escape_into(out, text, false);
+        }
+    }
+    let _ = write!(out, "</{tag}>");
+}
+
+fn qualified_name(node: roxmltree::Node, namespace: Option<&str>, name: &str) -> String {
+    match namespace
+        .and_then(|uri| node.lookup_prefix(uri))
+        .filter(|prefix| !prefix.is_empty())
+    {
+        Some(prefix) => format!("{prefix}:{name}"),
+        None => name.to_string(),
+    }
+}
+
+fn write_attribute(out: &mut String, name: &str, value: &str) {
+    let _ = write!(out, r#" {name}=""#);
+    escape_into(out, value, true);
+    out.push('"');
+}
+
+fn escape_into(out: &mut String, text: &str, in_attribute: bool) {
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' if in_attribute => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
 }
 
 fn path_d(path: &PathData) -> String {

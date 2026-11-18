@@ -173,6 +173,10 @@ fn background_entities_survive_export() {
         Some(background),
     )
     .expect("export");
+    assert!(
+        !svg.contains("<!DOCTYPE") && !svg.contains("<!ENTITY"),
+        "export re-emits the DTD: {svg}"
+    );
     let pixmap = render(&svg, 10, 10);
     let centre = pixmap.pixel(5, 5).expect("pixel");
     assert_eq!(
@@ -180,4 +184,26 @@ fn background_entities_survive_export() {
         (0, 0, 255, 255),
         "{svg}"
     );
+}
+
+#[test]
+fn background_markup_is_escaped_on_export() {
+    let background = r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><title>a &lt; b &amp; "c"</title><rect id="r&quot;" width="10" height="10"/><use xlink:href="#r&quot;"/></svg>"##;
+    let svg = export_svg(
+        &doc(r#"{"version":1,"width":10,"height":10,"strokes":[]}"#),
+        Some(background),
+    )
+    .expect("export");
+    let xml =
+        resvg::usvg::roxmltree::Document::parse(&svg).unwrap_or_else(|e| panic!("{e}\n{svg}"));
+    let title = xml
+        .descendants()
+        .find(|n| n.has_tag_name("title"))
+        .and_then(|n| n.text());
+    assert_eq!(title, Some(r#"a < b & "c""#), "{svg}");
+    let href = xml
+        .descendants()
+        .find(|n| n.has_tag_name("use"))
+        .and_then(|n| n.attribute(("http://www.w3.org/1999/xlink", "href")));
+    assert_eq!(href, Some("#r\""), "{svg}");
 }
